@@ -1,0 +1,31 @@
+# Cartelle generate automaticamente da Unity
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Bb]uild/
+/[Bb]uilds/
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+
+# File di cache e memoria
+/[Mm]emoryCaptures/
+/[Rr]ecordings/
+
+# File di progetto IDE (Visual Studio, Rider, ecc.)
+*.csproj
+*.sln
+*.suo
+*.tmp
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# File di sistema operativi
+.DS_Store
+Thumbs.db
