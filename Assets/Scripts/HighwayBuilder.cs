@@ -10,7 +10,7 @@ public class HighwayBuilder : MonoBehaviour
     public SplineContainer splineContainer;
     
     [Tooltip("Larghezza totale in metri (es. 7.5 per due corsie A7)")]
-    public float roadWidth = 10.5f; 
+    public float roadWidth = 16f; 
     
     // [Tooltip("Larghezza reale delle corsie guidabili (es. 7.5)")]
     // public float drivableWidth = 7.5f;      
@@ -23,6 +23,8 @@ public class HighwayBuilder : MonoBehaviour
     [ContextMenu("Genera Asfalto")]
     public void GenerateRoad()
     {
+        Debug.Log("Lunghezza Autostrada: " + splineContainer.CalculateLength() + " metri");
+        
         if (splineContainer == null || splineContainer.Splines.Count == 0)
         {
             Debug.LogWarning("Manca la Spline! Assegna il contenitore.");

@@ -29,3 +29,15 @@
 # File di sistema operativi
 .DS_Store
 Thumbs.db
+
+# Asset Store Packages
+*.unitypackage
+
+# IDE cache folders
+.vscode/
+.idea/
+.consulo/
+
+# Unity crash dumps
+sysinfo.txt
+/[Cc]rashes/
