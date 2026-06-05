@@ -468,6 +468,7 @@ GameObject:
   m_Component:
   - component: {fileID: 3667211753972221885}
   - component: {fileID: 8352974724832265074}
+  - component: {fileID: 1910348039242545312}
   m_Layer: 0
   m_Name: Simple Retro Car
   m_TagString: Untagged
@@ -500,7 +501,7 @@ Rigidbody:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 3638911070570068518}
   serializedVersion: 5
-  m_Mass: 1
+  m_Mass: 1000
   m_LinearDamping: 0
   m_AngularDamping: 0.05
   m_CenterOfMass: {x: 0, y: 0, z: 0}
@@ -519,6 +520,33 @@ Rigidbody:
   m_Interpolate: 0
   m_Constraints: 0
   m_CollisionDetection: 0
+--- !u!114 &1910348039242545312
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3638911070570068518}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 27e4cb7ce9a4e4417bcebb1479c73113, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::DrivingSim.CarController
+  inputSource: {fileID: 0}
+  frontLeftWheelCollider: {fileID: 3000801436188918068}
+  frontRightWheelCollider: {fileID: 7839861212372233474}
+  rearLeftWheelCollider: {fileID: 3822944271023089787}
+  rearRightWheelCollider: {fileID: 5545485442915391040}
+  frontLeftWheelMesh: {fileID: 5762570170461424032}
+  frontRightWheelMesh: {fileID: 5055393613153632230}
+  rearLeftWheelMesh: {fileID: 8433907195583350796}
+  rearRightWheelMesh: {fileID: 5211243304139020618}
+  maxMotorTorque: 1500
+  maxBrakeTorque: 3000
+  maxHandbrakeTorque: 4000
+  maxSteeringAngle: 30
+  frontWheelDrive: 0
+  rearWheelDrive: 1
 --- !u!1 &4541040181670446891
 GameObject:
   m_ObjectHideFlags: 0

@@ -1,0 +1,113 @@
+{
+  "asset": {
+    "version": "2.0",
+    "generator": "split_mirrors.py"
+  },
+  "nodes": [
+    {
+      "name": "RearViewMirror",
+      "mesh": 0
+    }
+  ],
+  "buffers": [
+    {
+      "uri": "RearViewMirror.bin",
+      "byteLength": 528
+    }
+  ],
+  "bufferViews": [
+    {
+      "buffer": 0,
+      "byteOffset": 0,
+      "byteLength": 48,
+      "target": 34963
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 48,
+      "byteLength": 480,
+      "byteStride": 48,
+      "target": 34962
+    }
+  ],
+  "accessors": [
+    {
+      "bufferView": 1,
+      "componentType": 5126,
+      "count": 10,
+      "type": "VEC3",
+      "min": [
+        -0.12988118827342987,
+        1.2256016731262207,
+        0.09437060356140137
+      ],
+      "max": [
+        0.12890830636024475,
+        1.2944339513778687,
+        0.098505400121212
+      ]
+    },
+    {
+      "bufferView": 1,
+      "componentType": 5126,
+      "count": 10,
+      "type": "VEC3",
+      "byteOffset": 12
+    },
+    {
+      "bufferView": 1,
+      "componentType": 5126,
+      "count": 10,
+      "type": "VEC4",
+      "byteOffset": 24
+    },
+    {
+      "bufferView": 1,
+      "componentType": 5126,
+      "count": 10,
+      "type": "VEC2",
+      "byteOffset": 40
+    },
+    {
+      "bufferView": 0,
+      "componentType": 5123,
+      "count": 24,
+      "type": "SCALAR"
+    }
+  ],
+  "materials": [
+    {
+      "name": "Material_Mirror_Black",
+      "pbrMetallicRoughness": {
+        "metallicFactor": 0,
+        "roughnessFactor": 0.5
+      }
+    }
+  ],
+  "meshes": [
+    {
+      "name": "RearViewMirror",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 0,
+            "NORMAL": 1,
+            "TANGENT": 2,
+            "TEXCOORD_0": 3
+          },
+          "indices": 4,
+          "material": 0
+        }
+      ]
+    }
+  ],
+  "scene": 0,
+  "scenes": [
+    {
+      "name": "RearViewMirror",
+      "nodes": [
+        0
+      ]
+    }
+  ]
+}

@@ -14,7 +14,7 @@ namespace DrivingSim
     /// </summary>
     [RequireComponent(typeof(Rigidbody))]
     [DisallowMultipleComponent]
-    public class CarController : MonoBehaviour
+    public partial class CarController : MonoBehaviour
     {
         [Header("References")]
         [Tooltip("Source of input for this car. Must implement ICarInput.")]
@@ -65,6 +65,19 @@ namespace DrivingSim
 
         [Tooltip("If true, rear wheels receive motor torque.")]
         [SerializeField] private bool rearWheelDrive = true;
+
+        [Header("Speed Limit")]
+        [Tooltip("Enable a top-speed cap for this car.")]
+        [SerializeField] private bool enableSpeedLimit = true;
+
+        [Tooltip("Maximum speed in display km/h (real-world equivalent).\n" +
+                 "Converted to physics m/s via HighwaySpeedScale if present.\n" +
+                 "Player car: 80. AI cars are limited inside AICarInput.")]
+        [SerializeField] private float maxDisplaySpeedKmh = 80f;
+
+        [Tooltip("How firmly the limiter enforces the cap each physics frame.\n" +
+                 "0.05 = gentle engine-cut feel.  0.4 = firm rev-limiter feel.")]
+        [SerializeField, Range(0.02f, 1f)] private float limitHardness = 0.15f;
 
         private ICarInput carInput;
         private Rigidbody rb;
@@ -119,6 +132,7 @@ namespace DrivingSim
             ApplySteering();
             ApplyMotorAndBrakes();
             UpdateWheelVisuals();
+            EnforceSpeedLimit();
         }
 
         /// <summary>
@@ -266,6 +280,63 @@ namespace DrivingSim
             collider.GetWorldPose(out Vector3 pos, out Quaternion rot);
             mesh.position = pos;
             mesh.rotation = rot;
+        }
+
+        /// <summary>
+        /// Restituisce la velocità lineare dell'auto in metri al secondo.
+        /// </summary>
+        public float GetSpeedMetersPerSecond()
+        {
+            if (rb == null) return 0f;
+            return rb.linearVelocity.magnitude;
+        }
+
+        /// <summary>
+        /// Restituisce la velocità in km/h.
+        /// </summary>
+        public float GetSpeedKmh()
+        {
+            return GetSpeedMetersPerSecond() * 3.6f;
+        }
+
+        /// <summary>
+        /// Restituisce la velocità in mph.
+        /// </summary>
+        public float GetSpeedMph()
+        {
+            return GetSpeedMetersPerSecond() * 2.23694f;
+        }
+
+        /// <summary>
+        /// Returns the speed in display km/h, scaled by HighwaySpeedScale so the
+        /// value represents real-world equivalent km/h on the configured highway.
+        /// Use this for dashboard displays instead of GetSpeedKmh().
+        /// </summary>
+        public float GetDisplaySpeedKmh()
+        {
+            float physicsMs = GetSpeedMetersPerSecond();
+            return HighwaySpeedScale.Instance != null
+                ? HighwaySpeedScale.Instance.PhysicsMsToDisplayKmh(physicsMs)
+                : physicsMs * 3.6f;
+        }
+
+        /// <summary>
+        /// Clamps the Rigidbody velocity to maxDisplaySpeedKmh each physics frame.
+        /// Uses a soft lerp so the speed reduction feels like a rev-limiter, not
+        /// an invisible wall.
+        /// </summary>
+        private void EnforceSpeedLimit()
+        {
+            if (!enableSpeedLimit || rb == null || maxDisplaySpeedKmh <= 0f) return;
+
+            float physicsMaxMs = HighwaySpeedScale.Instance != null
+                ? HighwaySpeedScale.Instance.RealKmhToPhysicsMs(maxDisplaySpeedKmh)
+                : maxDisplaySpeedKmh / 3.6f;
+
+            if (rb.linearVelocity.magnitude <= physicsMaxMs) return;
+
+            Vector3 capped = rb.linearVelocity.normalized * physicsMaxMs;
+            rb.linearVelocity = Vector3.Lerp(rb.linearVelocity, capped, limitHardness);
         }
     }
 }

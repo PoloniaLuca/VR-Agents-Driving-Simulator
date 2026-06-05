@@ -1,0 +1,113 @@
+{
+  "asset": {
+    "version": "2.0",
+    "generator": "split_mirrors.py"
+  },
+  "nodes": [
+    {
+      "name": "RightMirror",
+      "mesh": 0
+    }
+  ],
+  "buffers": [
+    {
+      "uri": "RightMirror.bin",
+      "byteLength": 1124
+    }
+  ],
+  "bufferViews": [
+    {
+      "buffer": 0,
+      "byteOffset": 0,
+      "byteLength": 116,
+      "target": 34963
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 116,
+      "byteLength": 1008,
+      "byteStride": 48,
+      "target": 34962
+    }
+  ],
+  "accessors": [
+    {
+      "bufferView": 1,
+      "componentType": 5126,
+      "count": 21,
+      "type": "VEC3",
+      "min": [
+        0.776854932308197,
+        0.9573265314102173,
+        0.3889138996601105
+      ],
+      "max": [
+        0.9767844080924988,
+        1.1037468910217285,
+        0.4973914623260498
+      ]
+    },
+    {
+      "bufferView": 1,
+      "componentType": 5126,
+      "count": 21,
+      "type": "VEC3",
+      "byteOffset": 12
+    },
+    {
+      "bufferView": 1,
+      "componentType": 5126,
+      "count": 21,
+      "type": "VEC4",
+      "byteOffset": 24
+    },
+    {
+      "bufferView": 1,
+      "componentType": 5126,
+      "count": 21,
+      "type": "VEC2",
+      "byteOffset": 40
+    },
+    {
+      "bufferView": 0,
+      "componentType": 5123,
+      "count": 57,
+      "type": "SCALAR"
+    }
+  ],
+  "materials": [
+    {
+      "name": "Material_Mirror_Black",
+      "pbrMetallicRoughness": {
+        "metallicFactor": 0,
+        "roughnessFactor": 0.5
+      }
+    }
+  ],
+  "meshes": [
+    {
+      "name": "RightMirror",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 0,
+            "NORMAL": 1,
+            "TANGENT": 2,
+            "TEXCOORD_0": 3
+          },
+          "indices": 4,
+          "material": 0
+        }
+      ]
+    }
+  ],
+  "scene": 0,
+  "scenes": [
+    {
+      "name": "RightMirror",
+      "nodes": [
+        0
+      ]
+    }
+  ]
+}
