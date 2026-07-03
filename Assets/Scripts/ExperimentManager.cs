@@ -4,7 +4,7 @@ using UnityEngine;
 using TMPro;
 
 // --- STRUTTURE DATI ---
-public enum ExperimentState { NotStarted, InstructionScreen, Driving, MidSessionBreak, Finished }
+public enum ExperimentState { NotStarted, PracticeInstruction, PracticeDriving, InstructionScreen, Driving, MidSessionBreak, Finished }
 public enum ConfigurazioneVMB { ABC, BCA } // ABC = Parola su Riga 1, BCA = Parola su Riga 3
 public enum TipoParola { ATTENZIONE, RALLENTARE, CONTROLLO }
 
@@ -31,11 +31,18 @@ public class ExperimentManager : MonoBehaviour
     public int currentTrialIndex = 0;
     public List<StimoloVMB> trialSequence = new List<StimoloVMB>();
 
-    [Header("Riferimenti Veicolo")]
+    [Header("Riferimenti Veicolo e Teletrasporto")]
     public GameObject veicoloGiocatore; 
-    public Transform puntoDiPartenza; 
+    [Tooltip("Punto in cui appare l'auto per il trial di FAMILIARIZZAZIONE")]
+    public Transform puntoDiPartenzaPratica; 
+    [Tooltip("Punto in cui appare l'auto per i TRIAL SPERIMENTALI (1-16)")]
+    public Transform puntoDiPartenzaSperimentale; 
     [Tooltip("Trascina qui lo script che gestisce volante e pedali")]
     public Behaviour scriptControlloAuto;
+
+    [Header("Riferimenti DataLogger")]
+    [Tooltip("Trascina qui l'oggetto che contiene lo script DataLogger")]
+    public DataLogger dataLogger;
 
     [Header("Riferimenti UI 2D (Schermo Pausa)")]
     public GameObject pauseScreenCanvas; 
@@ -54,60 +61,51 @@ public class ExperimentManager : MonoBehaviour
     void Start()
     {
         // All'avvio, nascondiamo i testi del portale e carichiamo la matrice del gruppo scelto
-        NascondiTestoPMV();
+        NascondiPMV();
         CaricaSequenzaGruppo(gruppoPartecipante);
-        AvviaProssimoTrial();
-    }
-
-    // --- GESTIONE DELLA MATRICE (IL PROTOCOLLO) ---
-    private void CaricaSequenzaGruppo(int gruppo)
-    {
-        trialSequence.Clear();
         
-        if (gruppo == 1)
+        StartCoroutine(FasePraticaIstruzioni());
+    }
+    
+    // --- FASE DI FAMILIARIZZAZIONE (TRIAL 0) ---
+    private IEnumerator FasePraticaIstruzioni()
+    {
+        currentState = ExperimentState.PracticeInstruction;
+        
+        pauseScreenCanvas.SetActive(true);
+        pauseInstructionsText.text = "PRACTICE TRIAL\nDrive in the right lane. Maintain ~80 km/h.\nTake the exit when it appears.";
+        
+        // Puoi mettere il nome dell'uscita che hai scritto fisicamente nei cartelli della pratica
+        pauseNextExitText.text = "Next exit: <b>MONZA</b>"; 
+
+        float timer = 2f; 
+        while (timer > 0)
         {
-            // T1: Set A (ATTENZIONE / Line 1)
-            trialSequence.Add(NuovoStimolo(80, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "TRANSITO", "DIFFICILE", "COMASINA"));
-            // T2: CONTROL (TANG. NORD / Line 1) - Fisso al trial 2
-            trialSequence.Add(NuovoStimolo(95, TipoParola.CONTROLLO, ConfigurazioneVMB.ABC, "TRAFFICO", "IRREGOLARE", "BICOCCA"));
-            // T3: Set C (RALLENTARE / Line 1) 
-            trialSequence.Add(NuovoStimolo(53, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "VIABILITA", "DIFFICOLTOSA", "CORMANO"));
-            // T4: Set B (ATTENZIONE / Line 3)
-            trialSequence.Add(NuovoStimolo(86, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "CODE LUNGHE", "IN AUMENTO", "SESTO"));
-            // T5: Set C (RALLENTARE / Line 1)
-            trialSequence.Add(NuovoStimolo(101, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "PRESENZA", "DI DETRITI", "SEGRATE"));
-            // T6: CONTROL (TANG. NORD / Line 1) - Fisso al trial 6
-            trialSequence.Add(NuovoStimolo(22, TipoParola.CONTROLLO, ConfigurazioneVMB.ABC, "SEGNALETICA", "NON VALIDA", "GOBBA"));
-            // T7: Set A (ATTENZIONE / Line 1)
-            trialSequence.Add(NuovoStimolo(27, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "RAFFICHE", "DI VENTO", "COMASINA"));
-            // T8: Set C (RALLENTARE / Line 1)
-            trialSequence.Add(NuovoStimolo(63, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "GUARDRAIL", "DANNEGGIATO", "BICOCCA"));
-            // T9: Set B (ATTENZIONE / Line 3)
-            trialSequence.Add(NuovoStimolo(32, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "GHIACCIO", "A TRATTI", "CORMANO"));
-            // T10: Set C (RALLENTARE / Line 3)
-            trialSequence.Add(NuovoStimolo(33, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "RIDUZIONE", "DELLE CORSIE", "SESTO"));
-            // T11: CONTROL (TANG. NORD / Line 1) - Fisso al trial 11
-            trialSequence.Add(NuovoStimolo(4, TipoParola.CONTROLLO, ConfigurazioneVMB.ABC, "TRASPORTO", "ECCEZIONALE", "SEGRATE"));
-            // T12: Set A (ATTENZIONE / Line 1)
-            trialSequence.Add(NuovoStimolo(94, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "MATERIALI", "DISPERSI", "GOBBA"));
-            // T13: Set B (ATTENZIONE / Line 3)
-            trialSequence.Add(NuovoStimolo(74, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "OSTACOLO", "IN STRADA", "COMASINA"));
-            // T14: Set C (RALLENTARE / Line 3)
-            trialSequence.Add(NuovoStimolo(33, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "CANTIERE", "STRADALE", "BICOCCA"));
-            // T15: CONTROL (TANG. NORD / Line 1) - Fisso al trial 15
-            trialSequence.Add(NuovoStimolo(30, TipoParola.CONTROLLO, ConfigurazioneVMB.ABC, "CODE INTENSE", "IN USCITA", "CORMANO"));
-            // T16: Set A (ATTENZIONE / Line 1)
-            trialSequence.Add(NuovoStimolo(14, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "AUTOMEZZO", "IN AVARIA", "SESTO"));
+            pauseTimerText.text = $"Starting practice in: {Mathf.Ceil(timer)}s";
+            timer -= Time.deltaTime;
+            yield return null;
         }
-        // else if (gruppo == 2) { Da inserire anche gli altri gruppi }
-        
-        Debug.Log($"Caricata sequenza di {trialSequence.Count} trial per il Gruppo {gruppo}");
+
+        pauseScreenCanvas.SetActive(false);
+        IniziaGuidaPratica();
     }
 
-    private StimoloVMB NuovoStimolo(int id, TipoParola tipo, ConfigurazioneVMB config, string riga2, string riga3, string uscita)
+    private void IniziaGuidaPratica()
     {
-        return new StimoloVMB { id = id, tipo = tipo, config = config, contestoRiga2 = riga2, contestoRiga3 = riga3, nomeUscita = uscita };
+        currentState = ExperimentState.PracticeDriving;
+        Debug.Log("Iniziato Trial di Familiarizzazione");
+
+        if (veicoloGiocatore != null && puntoDiPartenzaPratica != null)
+        {
+            veicoloGiocatore.transform.position = puntoDiPartenzaPratica.position;
+            veicoloGiocatore.transform.rotation = puntoDiPartenzaPratica.rotation;
+            AzzeraFisicaAuto();
+        }
+
+        if (scriptControlloAuto != null) scriptControlloAuto.enabled = true;
     }
+
+    
 
     // --- MACCHINA A STATI E FLUSSO ---
     public void AvviaProssimoTrial()
@@ -135,7 +133,7 @@ public class ExperimentManager : MonoBehaviour
 
         // Setup Schermo Grigio 2D
         pauseScreenCanvas.SetActive(true);
-        pauseInstructionsText.text = "Drive in the right lane. Maintain ~80 km/h.\n       Take the exit when it appears.";
+        pauseInstructionsText.text = "Drive in the right lane. Maintain ~80 km/h.\n Take the exit when it appears.";
         pauseNextExitText.text = $"Next exit: <b>{trialAttuale.nomeUscita}</b>"; 
 
         // Compila fisicamente i cartelli 3D in background
@@ -151,51 +149,76 @@ public class ExperimentManager : MonoBehaviour
         }
 
         pauseScreenCanvas.SetActive(false);
-        IniziaGuida();
+        IniziaGuidaSperimentale();
     }
 
-    private void IniziaGuida()
+    private void IniziaGuidaSperimentale()
     {
         currentState = ExperimentState.Driving;
         Debug.Log($"Iniziato Trial {currentTrialIndex + 1}");
-        NascondiTestoPMV();
-        if (veicoloGiocatore != null && puntoDiPartenza != null)
+        NascondiPMV();
+        
+        if (veicoloGiocatore != null && puntoDiPartenzaSperimentale != null)
         {
-            // 1. Teletrasporto al punto di partenza
-            veicoloGiocatore.transform.position = puntoDiPartenza.position;
-            veicoloGiocatore.transform.rotation = puntoDiPartenza.rotation;
-
-            // 2. Azzeramento delle forze fisiche (standstill a 0 km/h)
-            Rigidbody rb = veicoloGiocatore.GetComponent<Rigidbody>();
-            if (rb != null)
-            {
-                rb.linearVelocity = Vector3.zero;
-                rb.angularVelocity = Vector3.zero;
-                
-                // NOTA SUL ROLLING START: Nel caso vogliamo che l'auto parta a 40 km/h.
-                // rb.velocity = veicoloGiocatore.transform.forward * 11.11f; // 11.11 m/s corrispondono a circa 40 km/h
-            }
+            veicoloGiocatore.transform.position = puntoDiPartenzaSperimentale.position;
+            veicoloGiocatore.transform.rotation = puntoDiPartenzaSperimentale.rotation;
+            AzzeraFisicaAuto();
         }
 
-        // 3. Sblocco comandi del simulatore
-        if (scriptControlloAuto != null)
+        if (scriptControlloAuto != null) scriptControlloAuto.enabled = true;
+
+        // Avviamo la registrazione dei dati SOLO nei trial sperimentali
+        if (dataLogger != null) dataLogger.StartLogging();
+    }
+
+    // --- FUNZIONE DI FINE TRIAL UNIFICATA ---
+    public void FineTrial()
+    {
+        if (scriptControlloAuto != null) scriptControlloAuto.enabled = false;
+
+        if (currentState == ExperimentState.PracticeDriving)
         {
-            scriptControlloAuto.enabled = true;
+            Debug.Log("Terminato Trial di Familiarizzazione. Inizio sessione sperimentale.");
+            StartCoroutine(SchermataFinePratica()); //  Avvia la schermata di attesa
+        }
+        else if (currentState == ExperimentState.Driving)
+        {
+            Debug.Log($"Terminato Trial {currentTrialIndex + 1}");
+
+            // Assicuriamoci di fermare il logger alla fine del trial
+            if (dataLogger != null) dataLogger.StopLogging();
+
+            currentTrialIndex++;
+            AvviaProssimoTrial();
         }
     }
 
-    public void FineTrial()
+    private IEnumerator SchermataFinePratica()
     {
-        if (currentState != ExperimentState.Driving) return;
-        Debug.Log($"Terminato Trial {currentTrialIndex + 1}");
+        // Usiamo uno stato di pausa generico
+        currentState = ExperimentState.InstructionScreen; 
+        
+        pauseScreenCanvas.SetActive(true);
+        pauseInstructionsText.text = "Practice complete.\nPlease let the researcher know if you are ready.";
+        pauseNextExitText.text = ""; // Nascondiamo l'uscita per ora
+        pauseTimerText.text = "Researcher: Press SPACE to start the experiment...";
 
-        // Blocca i comandi (volante e pedali) per evitare input accidentali durante lo schermo grigio
-        if (scriptControlloAuto != null)
+        // Il sistema si "congela" finché non premi la barra spaziatrice
+        yield return new WaitUntil(() => Input.GetKeyDown(KeyCode.Space));
+
+        // Una volta premuto, avviamo regolarmente il Trial 1 (che farà partire i suoi 30 secondi)
+        AvviaProssimoTrial(); 
+    }
+
+    // --- METODI DI SUPPORTO ---
+    private void AzzeraFisicaAuto()
+    {
+        Rigidbody rb = veicoloGiocatore.GetComponent<Rigidbody>();
+        if (rb != null)
         {
-            scriptControlloAuto.enabled = false;
+            rb.linearVelocity = Vector3.zero;
+            rb.angularVelocity = Vector3.zero;
         }
-        currentTrialIndex++;
-        AvviaProssimoTrial();
     }
 
     private IEnumerator PausaLungaGSS()
@@ -218,6 +241,103 @@ public class ExperimentManager : MonoBehaviour
         pauseInstructionsText.text = "Experiment complete.\nThank you for your participation.";
         pauseNextExitText.text = "";
         pauseTimerText.text = "";
+    }
+
+    // --- GESTIONE DELLA MATRICE (IL PROTOCOLLO) ---
+    private void CaricaSequenzaGruppo(int gruppo)
+    {
+        trialSequence.Clear();
+        
+        switch (gruppo)
+        {
+            case 1:
+                // GRUPPO 1
+                // Condizioni: Set A(ATT/1), Set B(ATT/3), Set C(RAL/1), Set D(RAL/3)
+                trialSequence.Add(NuovoStimolo(80, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "TRANSITO", "DIFFICILE", "COMASINA"));
+                trialSequence.Add(NuovoStimolo(95, TipoParola.CONTROLLO, ConfigurazioneVMB.ABC, "TRAFFICO", "IRREGOLARE", "BICOCCA")); // Controllo fisso
+                trialSequence.Add(NuovoStimolo(53, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "VIABILITA", "DIFFICOLTOSA", "CORMANO"));
+                trialSequence.Add(NuovoStimolo(86, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "CODE LUNGHE", "IN AUMENTO", "SESTO"));
+                trialSequence.Add(NuovoStimolo(14, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "AUTOMEZZO", "IN AVARIA", "SEGRATE"));
+                trialSequence.Add(NuovoStimolo(22, TipoParola.CONTROLLO, ConfigurazioneVMB.ABC, "SEGNALETICA", "NON VALIDA", "GOBBA")); // Controllo fisso
+                trialSequence.Add(NuovoStimolo(27, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "RAFFICHE", "DI VENTO", "COMASINA"));
+                trialSequence.Add(NuovoStimolo(101, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "PRESENZA", "DI DETRITI", "BICOCCA"));
+                trialSequence.Add(NuovoStimolo(32, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "GHIACCIO", "A TRATTI", "CORMANO"));
+                trialSequence.Add(NuovoStimolo(20, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "CANTIERE", "STRADALE", "SESTO"));
+                trialSequence.Add(NuovoStimolo(4, TipoParola.CONTROLLO, ConfigurazioneVMB.ABC, "TRASPORTO", "ECCEZIONALE", "SEGRATE")); // Controllo fisso
+                trialSequence.Add(NuovoStimolo(94, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "MATERIALI", "DISPERSI", "GOBBA"));
+                trialSequence.Add(NuovoStimolo(63, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "GUARDRAIL", "DANNEGGIATO", "COMASINA"));
+                trialSequence.Add(NuovoStimolo(74, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "OSTACOLO", "IN STRADA", "BICOCCA"));
+                trialSequence.Add(NuovoStimolo(30, TipoParola.CONTROLLO, ConfigurazioneVMB.ABC, "CODE INTENSE", "IN USCITA", "CORMANO")); // Controllo fisso
+                trialSequence.Add(NuovoStimolo(33, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "RIDUZIONE", "DELLE CORSIE", "SESTO"));
+                break;
+
+            case 2:
+                // GRUPPO 2 (Shift delle condizioni)
+                trialSequence.Add(NuovoStimolo(86, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "CODE LUNGHE", "IN AUMENTO", "COMASINA"));
+                trialSequence.Add(NuovoStimolo(95, TipoParola.CONTROLLO, ConfigurazioneVMB.ABC, "TRAFFICO", "IRREGOLARE", "BICOCCA")); // Controllo fisso
+                trialSequence.Add(NuovoStimolo(80, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "TRANSITO", "DIFFICILE", "CORMANO"));
+                trialSequence.Add(NuovoStimolo(53, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "VIABILITA", "DIFFICOLTOSA", "SESTO"));
+                trialSequence.Add(NuovoStimolo(14, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "AUTOMEZZO", "IN AVARIA", "SEGRATE"));
+                trialSequence.Add(NuovoStimolo(22, TipoParola.CONTROLLO, ConfigurazioneVMB.ABC, "SEGNALETICA", "NON VALIDA", "GOBBA")); // Controllo fisso
+                trialSequence.Add(NuovoStimolo(32, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "GHIACCIO", "A TRATTI", "COMASINA"));
+                trialSequence.Add(NuovoStimolo(27, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "RAFFICHE", "DI VENTO", "BICOCCA"));
+                trialSequence.Add(NuovoStimolo(101, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "PRESENZA", "DI DETRITI", "CORMANO"));
+                trialSequence.Add(NuovoStimolo(20, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "CANTIERE", "STRADALE", "SESTO"));
+                trialSequence.Add(NuovoStimolo(4, TipoParola.CONTROLLO, ConfigurazioneVMB.ABC, "TRASPORTO", "ECCEZIONALE", "SEGRATE")); // Controllo fisso
+                trialSequence.Add(NuovoStimolo(74, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "OSTACOLO", "IN STRADA", "GOBBA"));
+                trialSequence.Add(NuovoStimolo(94, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "MATERIALI", "DISPERSI", "COMASINA"));
+                trialSequence.Add(NuovoStimolo(63, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "GUARDRAIL", "DANNEGGIATO", "BICOCCA"));
+                trialSequence.Add(NuovoStimolo(30, TipoParola.CONTROLLO, ConfigurazioneVMB.ABC, "CODE INTENSE", "IN USCITA", "CORMANO")); // Controllo fisso
+                trialSequence.Add(NuovoStimolo(33, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "RIDUZIONE", "DELLE CORSIE", "SESTO"));
+                break;
+
+            case 3:
+                // GRUPPO 3 (Shift delle condizioni)
+                trialSequence.Add(NuovoStimolo(53, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "VIABILITA", "DIFFICOLTOSA", "COMASINA"));
+                trialSequence.Add(NuovoStimolo(95, TipoParola.CONTROLLO, ConfigurazioneVMB.ABC, "TRAFFICO", "IRREGOLARE", "BICOCCA")); // Controllo fisso
+                trialSequence.Add(NuovoStimolo(80, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "TRANSITO", "DIFFICILE", "CORMANO"));
+                trialSequence.Add(NuovoStimolo(14, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "AUTOMEZZO", "IN AVARIA", "SESTO"));
+                trialSequence.Add(NuovoStimolo(86, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "CODE LUNGHE", "IN AUMENTO", "SEGRATE"));
+                trialSequence.Add(NuovoStimolo(22, TipoParola.CONTROLLO, ConfigurazioneVMB.ABC, "SEGNALETICA", "NON VALIDA", "GOBBA")); // Controllo fisso
+                trialSequence.Add(NuovoStimolo(101, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "PRESENZA", "DI DETRITI", "COMASINA"));
+                trialSequence.Add(NuovoStimolo(27, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "RAFFICHE", "DI VENTO", "BICOCCA"));
+                trialSequence.Add(NuovoStimolo(20, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "CANTIERE", "STRADALE", "CORMANO"));
+                trialSequence.Add(NuovoStimolo(32, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "GHIACCIO", "A TRATTI", "SESTO"));
+                trialSequence.Add(NuovoStimolo(4, TipoParola.CONTROLLO, ConfigurazioneVMB.ABC, "TRASPORTO", "ECCEZIONALE", "SEGRATE")); // Controllo fisso
+                trialSequence.Add(NuovoStimolo(63, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "GUARDRAIL", "DANNEGGIATO", "GOBBA"));
+                trialSequence.Add(NuovoStimolo(94, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "MATERIALI", "DISPERSI", "COMASINA"));
+                trialSequence.Add(NuovoStimolo(33, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "RIDUZIONE", "DELLE CORSIE", "BICOCCA"));
+                trialSequence.Add(NuovoStimolo(30, TipoParola.CONTROLLO, ConfigurazioneVMB.ABC, "CODE INTENSE", "IN USCITA", "CORMANO")); // Controllo fisso
+                trialSequence.Add(NuovoStimolo(74, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "OSTACOLO", "IN STRADA", "SESTO"));
+                break;
+
+            case 4:
+                // GRUPPO 4 (Shift delle condizioni)
+                trialSequence.Add(NuovoStimolo(14, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "AUTOMEZZO", "IN AVARIA", "COMASINA"));
+                trialSequence.Add(NuovoStimolo(95, TipoParola.CONTROLLO, ConfigurazioneVMB.ABC, "TRAFFICO", "IRREGOLARE", "BICOCCA")); // Controllo fisso
+                trialSequence.Add(NuovoStimolo(86, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "CODE LUNGHE", "IN AUMENTO", "CORMANO"));
+                trialSequence.Add(NuovoStimolo(80, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "TRANSITO", "DIFFICILE", "SESTO"));
+                trialSequence.Add(NuovoStimolo(53, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "VIABILITA", "DIFFICOLTOSA", "SEGRATE"));
+                trialSequence.Add(NuovoStimolo(22, TipoParola.CONTROLLO, ConfigurazioneVMB.ABC, "SEGNALETICA", "NON VALIDA", "GOBBA")); // Controllo fisso
+                trialSequence.Add(NuovoStimolo(20, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "CANTIERE", "STRADALE", "COMASINA"));
+                trialSequence.Add(NuovoStimolo(32, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "GHIACCIO", "A TRATTI", "BICOCCA"));
+                trialSequence.Add(NuovoStimolo(27, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "RAFFICHE", "DI VENTO", "CORMANO"));
+                trialSequence.Add(NuovoStimolo(101, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "PRESENZA", "DI DETRITI", "SESTO"));
+                trialSequence.Add(NuovoStimolo(4, TipoParola.CONTROLLO, ConfigurazioneVMB.ABC, "TRASPORTO", "ECCEZIONALE", "SEGRATE")); // Controllo fisso
+                trialSequence.Add(NuovoStimolo(33, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "RIDUZIONE", "DELLE CORSIE", "GOBBA"));
+                trialSequence.Add(NuovoStimolo(74, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "OSTACOLO", "IN STRADA", "COMASINA"));
+                trialSequence.Add(NuovoStimolo(94, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "MATERIALI", "DISPERSI", "BICOCCA"));
+                trialSequence.Add(NuovoStimolo(30, TipoParola.CONTROLLO, ConfigurazioneVMB.ABC, "CODE INTENSE", "IN USCITA", "CORMANO")); // Controllo fisso
+                trialSequence.Add(NuovoStimolo(63, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "GUARDRAIL", "DANNEGGIATO", "SESTO"));
+                break;
+        }
+        
+        Debug.Log($"Caricata sequenza di {trialSequence.Count} trial per il Gruppo {gruppo}");
+    }
+
+    private StimoloVMB NuovoStimolo(int id, TipoParola tipo, ConfigurazioneVMB config, string riga2, string riga3, string uscita)
+    {
+        return new StimoloVMB { id = id, tipo = tipo, config = config, contestoRiga2 = riga2, contestoRiga3 = riga3, nomeUscita = uscita };
     }
 
     // --- GESTIONE FISICA DEI CARTELLI (TESTI) ---
@@ -257,7 +377,7 @@ public class ExperimentManager : MonoBehaviour
         testoPMV_Riga3.gameObject.SetActive(true);
     }
 
-    private void NascondiTestoPMV()
+    private void NascondiPMV()
     {
         if (modelloFisicoPMV != null)
         {
