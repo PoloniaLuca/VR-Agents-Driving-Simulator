@@ -16,19 +16,32 @@ public class SpeedWarningSystem : MonoBehaviour
 
     private bool isArmed = false;   // Diventa true quando superi i 65 km/h
     private bool hasBeeped = false; // Evita che il suono venga riprodotto 60 volte al secondo
+    
+    [Header("Controllo Esperimento")]
+    public bool isSystemEnabled = false; // Questo sarà il nostro interruttore
+
 
     void Update()
     {
-        if (carRigidbody == null || beepAudioSource == null) return;
+        if (!isSystemEnabled || carRigidbody == null || beepAudioSource == null) return;
+
+        // if (ExperimentManager.Instance.currentState != ExperimentState.Driving) return;
 
         // Calcoliamo la velocità in km/h
         float currentSpeedKmH = carRigidbody.linearVelocity.magnitude * 3.6f;
+
+         if (currentSpeedKmH < 1f) 
+        {
+            isArmed = false;
+            hasBeeped = false;
+        }
 
         // 1. Armiamo il sistema solo DOPO che l'utente è partito e ha raggiunto una velocità di crociera decente (es. 65 km/h)
         if (!isArmed && currentSpeedKmH >= armingSpeed)
         {
             isArmed = true;
             hasBeeped = false;
+            Debug.Log("SpeedWarning: Sistema ARMATO (Superati i 65 km/h)");
         }
 
         // 2. Se il sistema è armato e la velocità scende sotto i 60 km/h, SUONA!

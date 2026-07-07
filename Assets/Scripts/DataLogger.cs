@@ -23,6 +23,9 @@ public class DataLogger : MonoBehaviour
     public bool latencyTimerActive = false;
     public bool postGantryActive = false;
 
+    private float totalTrialOdometer = 0f;    // Conta i metri da quando parte il trial (0 a 4000)
+    private bool trialValidityError = false; 
+
     // Timer e Odometri
     private float speedAbove75Timer = 0f;
     private float postGantryOdometer = 0f;
@@ -74,26 +77,40 @@ public class DataLogger : MonoBehaviour
         float currentThrottle = GetThrottlePedal();
         float currentBrake = GetBrakePedal();
 
-        // 1. SPEED BASELINE CONDIZIONALE (Senza Trigger Fisico)
-        if (!speedBaselineCompleted)
-        {
-            if (currentSpeedKmH >= 75f)
-            {
-                speedAbove75Timer += Time.fixedDeltaTime;
-                speedBaselineData.Add(currentSpeedKmH);
+        float distanceThisFrame = Vector3.Distance(carTransform.position, lastPosition);
+        totalTrialOdometer += distanceThisFrame;
 
-                // Se mantiene 75 km/h continuativamente per 5 secondi
-                if (speedAbove75Timer >= 5f)
-                {
-                    speedBaselineCompleted = true;
-                    Debug.Log("DataLogger: Speed Baseline di 5s acquisita con successo!");
-                }
-            }
-            else
+        // 1. SPEED BASELINE CONDIZIONALE (Solo tra 1.0km e 1.4km)
+        if (!speedBaselineCompleted && !trialValidityError)
+        {
+            // Controlliamo se abbiamo superato il primo chilometro
+            if (totalTrialOdometer >= 1000f)
             {
-                // Se la velocità scende sotto i 75 km/h, il protocollo richiede che sia "continuo", quindi resettiamo
-                speedAbove75Timer = 0f;
-                speedBaselineData.Clear();
+                if (currentSpeedKmH >= 75f)
+                {
+                    speedAbove75Timer += Time.fixedDeltaTime;
+                    speedBaselineData.Add(currentSpeedKmH);
+
+                    // Se mantiene 75 km/h continuativamente per 5 secondi
+                    if (speedAbove75Timer >= 5f)
+                    {
+                        speedBaselineCompleted = true;
+                        Debug.Log($"DataLogger: Speed Baseline acquisita a {totalTrialOdometer:F0} metri.");
+                    }
+                }
+                else
+                {
+                    // Se scende sotto i 75 prima di finire i 5 secondi, resetta il timer locale
+                    speedAbove75Timer = 0f;
+                    speedBaselineData.Clear();
+                }
+
+                // CONTROLLO FALLIMENTO: Se arriviamo a 1.4km senza aver completato la baseline
+                if (totalTrialOdometer >= 1400f && !speedBaselineCompleted)
+                {
+                    trialValidityError = true;
+                    Debug.LogError("BASELINE_NOT_REACHED: L'utente non ha stabilizzato la velocità tra 1.0 e 1.4 km.");
+                }
             }
         }
 
@@ -129,7 +146,7 @@ public class DataLogger : MonoBehaviour
         // 4. ODOMETRO POST-PORTALE (Km 2.0 in poi)
         if (postGantryActive)
         {
-            float distanceThisFrame = Vector3.Distance(carTransform.position, lastPosition);
+            distanceThisFrame = Vector3.Distance(carTransform.position, lastPosition);
             postGantryOdometer += distanceThisFrame;
 
             // Finestra 0 a +300m (DV4 SDLP)
@@ -180,6 +197,14 @@ public class DataLogger : MonoBehaviour
     public void FineTrial(bool uscitaCorretta)
     {
         if (!isLoggingEnabled) return; // Sicurezza extra: non calcolare nulla se spento
+
+        if (trialValidityError)
+        {
+            Debug.LogWarning("FINE TRIAL: Dati non salvati perché BASELINE_NOT_REACHED.");
+            // Qui potresti decidere di loggare comunque il DV8 o scartare tutto
+            StopLogging();
+            return;
+        }
 
         DV8_ExitCompliance = uscitaCorretta ? 1 : 0;
 
@@ -233,6 +258,8 @@ public class DataLogger : MonoBehaviour
         throttlePreReadableBuffer.Clear(); throttlePostReadableData.Clear();
         DV1_BrakingLatency = -1f; DV2_MinSpeed = float.MaxValue; DV3_DurationBelowBaseline = 0f; 
         DV4_SDLP_Change = 0f; DV5_BrakeEngagement = 0; DV6_SpeedRecoveryTime = -1f; DV7_ThrottleReduction = 0f;
+        totalTrialOdometer = 0f;     // Fondamentale resettare l'odometro
+        trialValidityError = false;  // Resetta lo stato di errore
     }
 
     // --- MATEMATICA E INPUT ---

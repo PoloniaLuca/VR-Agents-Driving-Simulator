@@ -73,7 +73,7 @@ namespace DrivingSim
         [Tooltip("Maximum speed in display km/h (real-world equivalent).\n" +
                  "Converted to physics m/s via HighwaySpeedScale if present.\n" +
                  "Player car: 80. AI cars are limited inside AICarInput.")]
-        [SerializeField] private float maxDisplaySpeedKmh = 80f;
+        [SerializeField] private float maxDisplaySpeedKmh = 90f;
 
         [Tooltip("How firmly the limiter enforces the cap each physics frame.\n" +
                  "0.05 = gentle engine-cut feel.  0.4 = firm rev-limiter feel.")]

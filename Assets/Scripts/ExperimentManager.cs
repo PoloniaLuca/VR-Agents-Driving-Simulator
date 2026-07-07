@@ -58,6 +58,8 @@ public class ExperimentManager : MonoBehaviour
     public TextMeshProUGUI testoCartelloVerde_3km;
     public TextMeshProUGUI testoCartelloBianco_4_0km;
 
+
+    public SpeedWarningSystem speedWarning; // Trascina qui l'oggetto dell'auto
     void Start()
     {
         // All'avvio, nascondiamo i testi del portale e carichiamo la matrice del gruppo scelto
@@ -93,6 +95,8 @@ public class ExperimentManager : MonoBehaviour
     private void IniziaGuidaPratica()
     {
         currentState = ExperimentState.PracticeDriving;
+        
+        if (speedWarning != null) speedWarning.ResetWarningSystem();
         Debug.Log("Iniziato Trial di Familiarizzazione");
 
         if (veicoloGiocatore != null && puntoDiPartenzaPratica != null)
@@ -133,7 +137,7 @@ public class ExperimentManager : MonoBehaviour
 
         // Setup Schermo Grigio 2D
         pauseScreenCanvas.SetActive(true);
-        pauseInstructionsText.text = "Drive in the right lane. Maintain ~80 km/h.\n Take the exit when it appears.";
+        pauseInstructionsText.text = "Drive in the right lane. Maintain ~80 km/h.\nTake the exit when it appears.\n<size=80%>(If your speed drops well below normal highway speed, you will hear a short beep as a reminder.).</size>";
         pauseNextExitText.text = $"Next exit: <b>{trialAttuale.nomeUscita}</b>"; 
 
         // Compila fisicamente i cartelli 3D in background
@@ -167,6 +171,13 @@ public class ExperimentManager : MonoBehaviour
 
         if (scriptControlloAuto != null) scriptControlloAuto.enabled = true;
 
+        // Attiva fisicamente il sistema di allarme velocità
+        if (speedWarning != null) 
+        {
+            speedWarning.ResetWarningSystem();
+            speedWarning.isSystemEnabled = true; // ACCENDI QUI
+        }
+
         // Avviamo la registrazione dei dati SOLO nei trial sperimentali
         if (dataLogger != null) dataLogger.StartLogging();
     }
@@ -175,6 +186,13 @@ public class ExperimentManager : MonoBehaviour
     public void FineTrial()
     {
         if (scriptControlloAuto != null) scriptControlloAuto.enabled = false;
+
+        
+        if (speedWarning != null) 
+        {
+            speedWarning.isSystemEnabled = false; // SPEGNI QUI
+            speedWarning.ResetWarningSystem();
+        }
 
         if (currentState == ExperimentState.PracticeDriving)
         {
