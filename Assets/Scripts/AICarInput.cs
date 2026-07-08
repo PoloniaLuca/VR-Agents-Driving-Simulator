@@ -45,7 +45,7 @@ namespace DrivingSim
         [Tooltip("Arc-length interval [m] between auto-generated waypoints.\n" +
                  "Smaller = follows curves more precisely but costs marginally more.\n" +
                  "Good default: 15–25 m.")]
-        [SerializeField] private float waypointSpacing = 20f;
+        [SerializeField] private float waypointSpacing = 10f;
 
         // ─────────────────────────────────────────────────────────────────────
         //  Inspector – Pure-Pursuit steering
@@ -53,11 +53,11 @@ namespace DrivingSim
         [Header("Pure-Pursuit Steering")]
         [Tooltip("Base look-ahead distance [m] at low/zero speed.\n" +
                  "Keep small (4-8 m) so the car reacts to curves in time.")]
-        [SerializeField] private float lookAheadBase = 6f;
+        [SerializeField] private float lookAheadBase = 10f;
 
         [Tooltip("Maximum look-ahead distance [m] at high speed.\n" +
                  "Prevents over-steering on straights. 12-20 m.")]
-        [SerializeField] private float maxLookAhead = 14f;
+        [SerializeField] private float maxLookAhead = 20f;
 
         [Tooltip("Speed-based look-ahead scaling [m per m/s].\n" +
                  "LookAhead = lookAheadBase + speed × this. 0.3-0.5.")]
@@ -92,26 +92,26 @@ namespace DrivingSim
         // ─────────────────────────────────────────────────────────────────────
         [Header("Speed Profile")]
         [Tooltip("Target cruising speed [km/h] on a clear road.")]
-        [SerializeField] private float desiredSpeedKmh = 120f;
+        [SerializeField] private float desiredSpeedKmh = 100f;
 
         [Tooltip("Hard speed cap [km/h]. Vehicle never exceeds this.")]
-        [SerializeField] private float maxSpeedKmh = 160f;
+        [SerializeField] private float maxSpeedKmh = 110f;
 
         [Tooltip("Throttle aggressiveness [0-1].")]
         [SerializeField, Range(0.1f, 1f)] private float throttleAggressiveness = 0.8f;
 
         [Tooltip("Brake aggressiveness [0-1].")]
-        [SerializeField, Range(0.1f, 1f)] private float brakeAggressiveness = 0.9f;
+        [SerializeField, Range(0.1f, 1f)] private float brakeAggressiveness = 1f;
 
         // ─────────────────────────────────────────────────────────────────────
         //  Inspector – Fritzsche car-following  (Olstam & Tapani 2004, §3.5)
         // ─────────────────────────────────────────────────────────────────────
         [Header("Fritzsche Car-Following Parameters")]
         [Tooltip("Desired time gap TD [s]. (Paper default: 1.8)")]
-        [SerializeField] private float TD = 1.8f;
+        [SerializeField] private float TD = 2.5f;
 
         [Tooltip("Risky time gap Tr [s]. Below this the driver brakes hard. (Paper: 0.5)")]
-        [SerializeField] private float Tr = 0.5f;
+        [SerializeField] private float Tr = 0.8f;
 
         [Tooltip("Safe time gap Ts [s]. Min gap to accept positive accel. (Paper: 1.0)")]
         [SerializeField] private float Ts = 1.0f;
@@ -138,7 +138,7 @@ namespace DrivingSim
         [SerializeField] private float aMaxBrake = 6.0f;
 
         [Tooltip("s_{n-1} [m]: effective vehicle length incl. standstill gap. (Paper: 6)")]
-        [SerializeField] private float effectiveVehicleLength = 6.0f;
+        [SerializeField] private float effectiveVehicleLength = 8.0f;
 
         // ─────────────────────────────────────────────────────────────────────
         //  Inspector – Obstacle detection
@@ -150,7 +150,7 @@ namespace DrivingSim
 
         [Tooltip("Radius [m] of the forward SphereCast.\n" +
                  "Keep slightly narrower than the lane half-width (~1.0–1.4 m).")]
-        [SerializeField] private float detectionRadius = 1.2f;
+        [SerializeField] private float detectionRadius = 1.0f;
 
         [Tooltip("Layer mask for objects treated as obstacles (vehicles + statics).\n" +
                  "Exclude the road surface layer to avoid false positives.")]
@@ -511,14 +511,45 @@ namespace DrivingSim
             bool    found       = false;
             Rigidbody nearestRb = null;
 
+            // foreach (var h in hits)
+            // {
+            //     if (IsOwnCollider(h.collider)) continue;
+            //     if (h.distance < nearest)
+            //     {
+            //         nearest   = h.distance;
+            //         nearestRb = h.collider.attachedRigidbody;
+            //         found     = true;
+            //     }
+            // }
+
             foreach (var h in hits)
             {
                 if (IsOwnCollider(h.collider)) continue;
+
+                // --- NUOVA LOGICA DI FILTRO CORSIA ---
+                // Controlliamo se l'oggetto colpito ha un offset laterale simile al nostro
+                AICarInput otherAI = h.collider.GetComponentInParent<AICarInput>();
+                if (otherAI != null)
+                {
+                    // Se l'altra auto AI è in una corsia differente (differenza > 1 metro), ignorala
+                    if (Mathf.Abs(otherAI.laneOffset - this.laneOffset) > 1.0f) continue;
+                }
+                
+                // Per l'auto dell'utente (che non ha AICarInput), usiamo un controllo di distanza laterale
+                if (h.collider.CompareTag("Player") || h.collider.GetComponentInParent<UserCarInput>() != null)
+                {
+                    // Calcola la posizione locale dell'utente rispetto a questa auto AI
+                    Vector3 localPos = transform.InverseTransformPoint(h.collider.transform.position);
+                    // Se l'utente è spostato lateralmente di più di 1.5m rispetto al centro di questa auto, ignoralo
+                    if (Mathf.Abs(localPos.x) > 1.0f) continue; 
+                }
+                // -------------------------------------
+
                 if (h.distance < nearest)
                 {
-                    nearest   = h.distance;
+                    nearest = h.distance;
                     nearestRb = h.collider.attachedRigidbody;
-                    found     = true;
+                    found = true;
                 }
             }
 
@@ -707,6 +738,29 @@ namespace DrivingSim
                     $"{name}\nRegime:{currentRegime}  WP:{currentWPIndex}/{waypointCount - 1}\n" +
                     $"T:{Throttle:F2}  B:{Brake:F2}  S:{Steering:F2}");
             }
+
+            
+            // --- NUOVA VISUALIZZAZIONE CILINDRO DI VISIONE ---
+            Gizmos.color = Color.yellow;
+            
+            // Calcoliamo l'origine del raggio (come nel codice di DetectObstacle)
+            Vector3 origin = transform.position + transform.up * 0.3f + transform.forward * (effectiveVehicleLength * 0.5f + detectionRadius + 0.1f);
+            Vector3 endPoint = origin + transform.forward * detectionRange;
+
+            // Disegna il "tubo" (cilindro) dello SphereCast
+            // Disegna il cerchio all'inizio e alla fine
+            UnityEditor.Handles.color = Color.yellow;
+            UnityEditor.Handles.DrawWireDisc(origin, transform.forward, detectionRadius);
+            UnityEditor.Handles.DrawWireDisc(endPoint, transform.forward, detectionRadius);
+
+            // Disegna le 4 linee laterali che collegano i cerchi per formare il tubo
+            Gizmos.DrawLine(origin + transform.right * detectionRadius, endPoint + transform.right * detectionRadius);
+            Gizmos.DrawLine(origin - transform.right * detectionRadius, endPoint - transform.right * detectionRadius);
+            Gizmos.DrawLine(origin + transform.up * detectionRadius, endPoint + transform.up * detectionRadius);
+            Gizmos.DrawLine(origin - transform.up * detectionRadius, endPoint - transform.up * detectionRadius);
+            
+            // Disegna una sfera alla fine del raggio per indicare la portata massima
+            Gizmos.DrawWireSphere(endPoint, 0.5f);
         }
 
         private void OnDrawGizmos()

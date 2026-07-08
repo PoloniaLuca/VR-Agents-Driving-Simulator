@@ -83,7 +83,7 @@ namespace DrivingSim
                 $"[HighwaySpeedScale] Spline = {SplineLength:F0} m | " +
                 $"Real = {realHighwayLengthKm} km | " +
                 $"Scale = {SpeedScale:F4}\n" +
-                $"  80 km/h display → {RealKmhToPhysicsMs(80f):F3} m/s physics\n" +
+                $"  90 km/h display → {RealKmhToPhysicsMs(90f):F3} m/s physics\n" +
                 $"  90 km/h display → {RealKmhToPhysicsMs(90f):F3} m/s physics\n" +
                 $" 100 km/h display → {RealKmhToPhysicsMs(100f):F3} m/s physics");
         }

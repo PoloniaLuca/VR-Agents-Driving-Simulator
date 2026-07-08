@@ -286,18 +286,22 @@ MonoBehaviour:
   roadSpline: {fileID: 0}
   splineIndex: 0
   laneOffset: -1.875
-  waypointSpacing: 20
-  lookAheadBase: 8
-  maxLookAhead: 18
+  waypointSpacing: 10
+  lookAheadBase: 10
+  maxLookAhead: 20
   speedLookAheadScale: 0.05
+  maxSteeringAngleDeg: 30
   steeringGain: 1.2
   maxSteeringOutput: 1
-  desiredSpeedKmh: 80
-  maxSpeedKmh: 100
+  enableCurveSlowdown: 0
+  curveDetectionWaypoints: 4
+  minCurveSpeedFactor: 0.45
+  desiredSpeedKmh: 100
+  maxSpeedKmh: 110
   throttleAggressiveness: 0.8
-  brakeAggressiveness: 0.9
-  TD: 1.8
-  Tr: 0.5
+  brakeAggressiveness: 1
+  TD: 2
+  Tr: 0.8
   Ts: 1
   deltaBm: 0.4
   kPTP: 0.001
@@ -308,7 +312,7 @@ MonoBehaviour:
   aMaxBrake: 6
   effectiveVehicleLength: 6
   detectionRange: 60
-  detectionRadius: 1.2
+  detectionRadius: 1
   obstacleMask:
     serializedVersion: 2
     m_Bits: 192
@@ -333,14 +337,14 @@ MonoBehaviour:
   frontRightWheelMesh: {fileID: 3148342840581244009}
   rearLeftWheelMesh: {fileID: 6733874583789126850}
   rearRightWheelMesh: {fileID: 8569571037902224909}
-  maxMotorTorque: 1500
+  maxMotorTorque: 4000
   maxBrakeTorque: 3000
   maxHandbrakeTorque: 4000
   maxSteeringAngle: 30
   frontWheelDrive: 0
   rearWheelDrive: 1
   enableSpeedLimit: 1
-  maxDisplaySpeedKmh: 80
+  maxDisplaySpeedKmh: 110
   limitHardness: 0.15
 --- !u!114 &5831867759956515592
 MonoBehaviour:
@@ -349,7 +353,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 2850495398295616759}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 6566e877367a1084aa61f873d7842df1, type: 3}
   m_Name: 

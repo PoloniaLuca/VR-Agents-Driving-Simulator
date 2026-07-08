@@ -40,12 +40,16 @@ namespace DrivingSim
             if (aiInput == null || carCtrl == null) return;
 
             GUILayout.BeginArea(new Rect(10, 50, 340, 220));
+            float speedMs = (rb != null ? rb.linearVelocity.magnitude : 0f);
+            float speedKmh = speedMs * 3.6f; 
+
             GUILayout.Box(
                 $"=== AI CAR DEBUG ===\n" +
                 $"Throttle : {aiInput.Throttle:F3}\n" +
                 $"Brake    : {aiInput.Brake:F3}\n" +
                 $"Steering : {aiInput.Steering:F3}\n" +
-                $"Speed    : {(rb != null ? rb.linearVelocity.magnitude : 0f):F2} m/s\n" +
+                $"Speed MS : {speedMs:F2} m/s\n" +
+                $"Speed KMH: {speedKmh:F1} km/h\n" + // Adesso lo vedi chiaramente!
                 $"Kinematic: {(rb != null ? rb.isKinematic.ToString() : "?")}\n" +
                 $"InputSrc assigned: {carCtrl != null}"
             );

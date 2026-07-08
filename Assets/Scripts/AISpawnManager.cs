@@ -97,7 +97,9 @@ namespace DrivingSim
                  "Index 0 = rightmost lane (slowest), last index = leftmost (fastest).\n" +
                  "e.g. 2 lanes: [80, 100]  |  3 lanes: [80, 90, 100]\n" +
                  "If the array is shorter than laneCount, the last value is reused.")]
-        [SerializeField] private float[] laneMaxSpeedsKmh = { 80f, 90f, 100f };
+                 
+        // [SerializeField] private float[] laneMaxSpeedsKmh = { 80f, 90f, 100f };
+        [SerializeField] private float[] laneMaxSpeedsKmh = { 90f, 100f };
 
         [Header("Car Variety")]
         [Tooltip("Desired speed is randomised between (laneMax - speedVariance) and laneMax.\n" +
