@@ -283,6 +283,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d7514bf622c94484e93d41a13d184d16, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::DrivingSim.AICarInput
+  myLaneIndex: 0
   roadSpline: {fileID: 0}
   splineIndex: 0
   laneOffset: -1.875

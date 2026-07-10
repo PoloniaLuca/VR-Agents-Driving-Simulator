@@ -311,6 +311,7 @@ namespace DrivingSim
 
             // Configure AICarInput – must happen before Start() runs on the new GO
             AICarInput ai = car.GetComponent<AICarInput>();
+            ai.myLaneIndex = laneIndex; 
             if (ai == null)
             {
                 Debug.LogError($"[AISpawnManager] Prefab '{prefab.name}' has no AICarInput.", this);
@@ -323,7 +324,7 @@ namespace DrivingSim
             float desiredSpeed = Mathf.Max(10f, laneMax - Random.Range(0f, speedVarianceKmh));
             float maxSpeed     = laneMax;
 
-            ai.Configure(roadSpline, splineIndex, offset, desiredSpeed, maxSpeed);
+            ai.Configure(roadSpline, splineIndex, offset, desiredSpeed, maxSpeed, laneIndex); 
 
             // Randomise motor torque for variety
             CarController cc = car.GetComponent<CarController>();

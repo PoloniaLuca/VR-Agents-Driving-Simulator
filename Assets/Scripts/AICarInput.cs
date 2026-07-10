@@ -26,6 +26,9 @@ namespace DrivingSim
         public float Handbrake          { get; private set; }
         public bool  ToggleReversePressed => false;
 
+        
+        public int myLaneIndex;
+
         // ─────────────────────────────────────────────────────────────────────
         //  Inspector – Spline & waypoints
         // ─────────────────────────────────────────────────────────────────────
@@ -224,12 +227,15 @@ namespace DrivingSim
             int             splineIdx,
             float           offset,
             float           desiredSpeedKmhValue,
-            float           maxSpeedKmhValue = 0f)
+            float           maxSpeedKmhValue = 0f,
+            int laneIdx = -1)
         {
             roadSpline       = spline;
             splineIndex      = splineIdx;
             laneOffset       = offset;
             desiredSpeedKmh  = desiredSpeedKmhValue;
+            myLaneIndex      = laneIdx;
+            
             if (maxSpeedKmhValue > 0f)
                 maxSpeedKmh  = Mathf.Max(desiredSpeedKmhValue, maxSpeedKmhValue);
 
@@ -491,59 +497,40 @@ namespace DrivingSim
         /// </summary>
         private bool DetectObstacle(out float gap, out float obstacleSpeedMs)
         {
-            gap              = float.MaxValue;
-            obstacleSpeedMs  = 0f;
+            gap = float.MaxValue;
+            obstacleSpeedMs = 0f;
 
-            // Offset origin past own front bumper so we never self-hit
-            Vector3 origin = transform.position
-                             + transform.up      * 0.3f
-                             + transform.forward * (effectiveVehicleLength * 0.5f
-                                                    + detectionRadius + 0.1f);
+            // Origine arretrata per non avere punti ciechi
+            Vector3 origin = transform.position + transform.up * 0.3f + transform.forward * 2.0f;
+            float castDist = detectionRange - 2.0f;
 
-            float castDist = Mathf.Max(0.1f,
-                detectionRange - effectiveVehicleLength * 0.5f - detectionRadius);
-
-            RaycastHit[] hits = Physics.SphereCastAll(
-                origin, detectionRadius, transform.forward, castDist,
-                obstacleMask, QueryTriggerInteraction.Ignore);
-
-            float   nearest     = float.MaxValue;
-            bool    found       = false;
+            RaycastHit[] hits = Physics.SphereCastAll(origin, detectionRadius, transform.forward, castDist, obstacleMask, QueryTriggerInteraction.Ignore);
+            float nearest = float.MaxValue;
+            bool found = false;
             Rigidbody nearestRb = null;
-
-            // foreach (var h in hits)
-            // {
-            //     if (IsOwnCollider(h.collider)) continue;
-            //     if (h.distance < nearest)
-            //     {
-            //         nearest   = h.distance;
-            //         nearestRb = h.collider.attachedRigidbody;
-            //         found     = true;
-            //     }
-            // }
 
             foreach (var h in hits)
             {
                 if (IsOwnCollider(h.collider)) continue;
 
-                // --- NUOVA LOGICA DI FILTRO CORSIA ---
-                // Controlliamo se l'oggetto colpito ha un offset laterale simile al nostro
+                // Prendiamo l'indice della corsia dell'oggetto colpito
+                int obstacleLaneIndex = -1;
+
+                // Se è un'altra AI, leggiamo il suo myLaneIndex
                 AICarInput otherAI = h.collider.GetComponentInParent<AICarInput>();
                 if (otherAI != null)
                 {
-                    // Se l'altra auto AI è in una corsia differente (differenza > 1 metro), ignorala
-                    if (Mathf.Abs(otherAI.laneOffset - this.laneOffset) > 1.0f) continue;
+                    obstacleLaneIndex = otherAI.myLaneIndex;
                 }
-                
-                // Per l'auto dell'utente (che non ha AICarInput), usiamo un controllo di distanza laterale
-                if (h.collider.CompareTag("Player") || h.collider.GetComponentInParent<UserCarInput>() != null)
+                // Se è il Player, sappiamo che per lo Study Plan è SEMPRE nella corsia 0
+                else if (h.collider.CompareTag("Player"))
                 {
-                    // Calcola la posizione locale dell'utente rispetto a questa auto AI
-                    Vector3 localPos = transform.InverseTransformPoint(h.collider.transform.position);
-                    // Se l'utente è spostato lateralmente di più di 1.5m rispetto al centro di questa auto, ignoralo
-                    if (Mathf.Abs(localPos.x) > 1.0f) continue; 
+                    obstacleLaneIndex = -1;
                 }
-                // -------------------------------------
+
+                // --- IL FILTRO LOGICO ---
+                // Se l'ostacolo NON è nella mia stessa corsia, lo ignoro COMPLETAMENTE.
+                if (obstacleLaneIndex != this.myLaneIndex) continue;
 
                 if (h.distance < nearest)
                 {
@@ -556,11 +543,7 @@ namespace DrivingSim
             if (!found) return false;
 
             gap = Mathf.Max(0f, nearest);
-
-            if (nearestRb != null)
-                obstacleSpeedMs = Vector3.Dot(nearestRb.linearVelocity, transform.forward);
-            // static object → obstacleSpeedMs stays 0
-
+            if (nearestRb != null) obstacleSpeedMs = Vector3.Dot(nearestRb.linearVelocity, transform.forward);
             return true;
         }
 
@@ -697,77 +680,82 @@ namespace DrivingSim
 #if UNITY_EDITOR
         private void OnDrawGizmosSelected()
         {
-            // Waypoints
+            // 1. DISEGNO WAYPOINTS (Percorso che l'auto sta seguendo)
             if (waypoints != null)
             {
                 for (int i = 0; i < waypointCount; i++)
                 {
-                    Gizmos.color = (i == currentWPIndex) ? Color.green : Color.grey;
+                    Gizmos.color = (i == currentWPIndex) ? Color.green : new Color(0.7f, 0.7f, 0.7f, 0.5f);
                     Gizmos.DrawSphere(waypoints[i], 0.3f);
                     if (i < waypointCount - 1)
                     {
-                        Gizmos.color = Color.grey;
+                        Gizmos.color = new Color(0.5f, 0.5f, 0.5f, 0.3f);
                         Gizmos.DrawLine(waypoints[i], waypoints[i + 1]);
                     }
                 }
             }
 
-            // Look-ahead target (cyan)
+            // 2. TARGET PURE-PURSUIT (Dove l'auto punta per sterzare)
             if (waypoints != null && Application.isPlaying)
             {
                 float speedMs = rb != null ? rb.linearVelocity.magnitude : 0f;
-                float L       = Mathf.Clamp(lookAheadBase + speedMs * speedLookAheadScale,
-                                            lookAheadBase, maxLookAhead);
-                Vector3 tgt   = GetPointAheadOnPath(L);
-                Gizmos.color  = Color.cyan;
-                Gizmos.DrawSphere(tgt, 0.4f);
-                Gizmos.DrawLine(transform.position, tgt);
+                float L = Mathf.Clamp(lookAheadBase + speedMs * speedLookAheadScale, lookAheadBase, maxLookAhead);
+                Vector3 tgt = GetPointAheadOnPath(L);
+                
+                Gizmos.color = Color.cyan;
+                Gizmos.DrawWireSphere(tgt, 0.5f);
+                Gizmos.DrawLine(transform.position + Vector3.up * 0.5f, tgt);
             }
 
-            // Detection ray (yellow)
+            // 3. CILINDRO DI VISIONE (SphereCast - Fritzsche Model)
+            // Usiamo la stessa logica del metodo DetectObstacle per coerenza visiva
+            float startOffset = 2.0f; // Origine arretrata per eliminare il punto cieco
+            Vector3 origin = transform.position + transform.up * 0.3f + transform.forward * startOffset;
+            Vector3 endPoint = origin + transform.forward * (detectionRange - startOffset);
+
+            // Colore Giallo per la visione
             Gizmos.color = Color.yellow;
-            Gizmos.DrawLine(
-                transform.position + transform.up * 0.3f,
-                transform.position + transform.up * 0.3f + transform.forward * detectionRange);
-
-            // Regime label
-            if (Application.isPlaying)
-            {
-                UnityEditor.Handles.Label(
-                    transform.position + Vector3.up * 3f,
-                    $"{name}\nRegime:{currentRegime}  WP:{currentWPIndex}/{waypointCount - 1}\n" +
-                    $"T:{Throttle:F2}  B:{Brake:F2}  S:{Steering:F2}");
-            }
-
-            
-            // --- NUOVA VISUALIZZAZIONE CILINDRO DI VISIONE ---
-            Gizmos.color = Color.yellow;
-            
-            // Calcoliamo l'origine del raggio (come nel codice di DetectObstacle)
-            Vector3 origin = transform.position + transform.up * 0.3f + transform.forward * (effectiveVehicleLength * 0.5f + detectionRadius + 0.1f);
-            Vector3 endPoint = origin + transform.forward * detectionRange;
-
-            // Disegna il "tubo" (cilindro) dello SphereCast
-            // Disegna il cerchio all'inizio e alla fine
             UnityEditor.Handles.color = Color.yellow;
+
+            // Disegna i dischi di sezione (Inizio e Fine)
             UnityEditor.Handles.DrawWireDisc(origin, transform.forward, detectionRadius);
             UnityEditor.Handles.DrawWireDisc(endPoint, transform.forward, detectionRadius);
 
-            // Disegna le 4 linee laterali che collegano i cerchi per formare il tubo
-            Gizmos.DrawLine(origin + transform.right * detectionRadius, endPoint + transform.right * detectionRadius);
-            Gizmos.DrawLine(origin - transform.right * detectionRadius, endPoint - transform.right * detectionRadius);
-            Gizmos.DrawLine(origin + transform.up * detectionRadius, endPoint + transform.up * detectionRadius);
-            Gizmos.DrawLine(origin - transform.up * detectionRadius, endPoint - transform.up * detectionRadius);
-            
-            // Disegna una sfera alla fine del raggio per indicare la portata massima
-            Gizmos.DrawWireSphere(endPoint, 0.5f);
+            // Disegna le linee di collegamento (i 4 lati del "tubo")
+            Vector3 upOffset = transform.up * detectionRadius;
+            Vector3 rightOffset = transform.right * detectionRadius;
+
+            Gizmos.DrawLine(origin + upOffset, endPoint + upOffset);       // Sopra
+            Gizmos.DrawLine(origin - upOffset, endPoint - upOffset);       // Sotto
+            Gizmos.DrawLine(origin + rightOffset, endPoint + rightOffset); // Destra
+            Gizmos.DrawLine(origin - rightOffset, endPoint - rightOffset); // Sinistra
+
+            // Sferetta finale per indicare il limite della vista
+            Gizmos.DrawWireSphere(endPoint, 0.3f);
+
+            // 4. ETICHETTE DI STATO (Testo sopra l'auto)
+            if (Application.isPlaying)
+            {
+                string info = $"{name}\n" +
+                              $"Regime: <color=yellow>{currentRegime}</color>\n" +
+                              $"Speed: {(rb.linearVelocity.magnitude * 3.6f):F1} km/h\n" +
+                              $"Lane Offset: {laneOffset:F2}m\n" +
+                              $"T:{Throttle:F2} B:{Brake:F2} S:{Steering:F2}";
+
+                UnityEditor.Handles.BeginGUI();
+                GUIStyle style = new GUIStyle(GUI.skin.label) { richText = true, fontSize = 12 };
+                Vector3 labelPos = transform.position + Vector3.up * 3.5f;
+                Vector2 guiPoint = UnityEditor.HandleUtility.WorldToGUIPoint(labelPos);
+                GUI.Label(new Rect(guiPoint.x - 50, guiPoint.y - 60, 200, 100), info, style);
+                UnityEditor.Handles.EndGUI();
+            }
         }
 
         private void OnDrawGizmos()
         {
-            // Draw waypoints even when not selected (faint)
+            // Disegna la spline della corsia in modo molto tenue anche quando non selezionata
             if (waypoints == null) return;
-            Gizmos.color = new Color(0.5f, 0.5f, 0.5f, 0.3f);
+            Gizmos.color = new Color(0.3f, 0.5f, 1f, 0.1f);
             for (int i = 0; i < waypointCount - 1; i++)
                 Gizmos.DrawLine(waypoints[i], waypoints[i + 1]);
         }
