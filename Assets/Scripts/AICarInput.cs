@@ -153,7 +153,7 @@ namespace DrivingSim
 
         [Tooltip("Radius [m] of the forward SphereCast.\n" +
                  "Keep slightly narrower than the lane half-width (~1.0–1.4 m).")]
-        [SerializeField] private float detectionRadius = 1.0f;
+        [SerializeField] private float detectionRadius = 1.5f;
 
         [Tooltip("Layer mask for objects treated as obstacles (vehicles + statics).\n" +
                  "Exclude the road surface layer to avoid false positives.")]
@@ -334,6 +334,9 @@ namespace DrivingSim
 
             // 1. Advance waypoint index
             AdvanceWaypoint();
+            
+            // CALCOLO DINAMICO DELLA VISTA (circa 3.5 secondi di anticipo in base alla velocità)
+            float dynamicRange = Mathf.Max(detectionRange, ownSpeedMs * 3.5f);
 
             // 2. Obstacle detection (vehicles + statics)
             bool  hasObstacle    = DetectObstacle(out float gap, out float obstacleSpeedMs);
@@ -342,7 +345,7 @@ namespace DrivingSim
 
             // 3. Fritzsche longitudinal control
             float accel = ComputeFritzscheAcceleration(
-                hasObstacle, gap, deltaV, ownSpeedMs, desiredSpeedMs);
+                hasObstacle, gap, deltaV, ownSpeedMs, desiredSpeedMs, dynamicRange);
 
             // 4. Map accel → throttle / brake
             ApplyLongitudinalOutput(accel, ownSpeedMs);
@@ -500,52 +503,91 @@ namespace DrivingSim
             gap = float.MaxValue;
             obstacleSpeedMs = 0f;
 
-            // Origine arretrata per non avere punti ciechi
-            Vector3 origin = transform.position + transform.up * 0.3f + transform.forward * 2.0f;
-            float castDist = detectionRange - 2.0f;
-
-            RaycastHit[] hits = Physics.SphereCastAll(origin, detectionRadius, transform.forward, castDist, obstacleMask, QueryTriggerInteraction.Ignore);
-            float nearest = float.MaxValue;
             bool found = false;
             Rigidbody nearestRb = null;
 
-            foreach (var h in hits)
+            // Partiamo dal muso dell'auto
+            Vector3 origin = transform.position + transform.up * 0.3f + transform.forward * 1.0f;
+            Vector3 prevPoint = origin;
+            
+            // Spezzettiamo la visione in segmenti da 10m per "curvare" con la strada
+            float step = 10f; 
+
+            // CALCOLO DINAMICO DEL RANGE: Più l'auto va veloce, più guarda lontano (minimo detectionRange, massimo 4 secondi di previsione)
+            float currentSpeed = rb != null ? rb.linearVelocity.magnitude : 0f;
+            float dynamicRange = Mathf.Max(detectionRange, currentSpeed * 8.0f);
+
+            for (float d = step; d <= dynamicRange; d += step)
             {
-                if (IsOwnCollider(h.collider)) continue;
+                // Troviamo il punto sulla nostra corsia a distanza 'd'
+                Vector3 nextPoint = GetPointAheadOnPath(d) + transform.up * 0.3f;
+                Vector3 dir = nextPoint - prevPoint;
+                float segmentLen = dir.magnitude;
 
-                // Prendiamo l'indice della corsia dell'oggetto colpito
-                int obstacleLaneIndex = -1;
+                if (segmentLen < 0.1f) break;
 
-                // Se è un'altra AI, leggiamo il suo myLaneIndex
-                AICarInput otherAI = h.collider.GetComponentInParent<AICarInput>();
-                if (otherAI != null)
+                // Lanciamo il raggio per questo singolo segmento curvo
+                RaycastHit[] hits = Physics.SphereCastAll(prevPoint, detectionRadius, dir.normalized, segmentLen, obstacleMask, QueryTriggerInteraction.Ignore);
+                
+                foreach (var h in hits)
                 {
-                    obstacleLaneIndex = otherAI.myLaneIndex;
-                }
-                // Se è il Player, sappiamo che per lo Study Plan è SEMPRE nella corsia 0
-                else if (h.collider.CompareTag("Player"))
-                {
-                    obstacleLaneIndex = -1;
+                    if (IsOwnCollider(h.collider)) continue;
+
+                    // IL SEGRETO: Poiché il raggio "curva" seguendo esattamente la nostra corsia,
+                    // chiunque entri in questo tubo è FISICAMENTE nella nostra traiettoria.
+                    // Nessun filtro matematico necessario: se tocca il raggio (es. raggio 1.5m), è un ostacolo.
+                    
+                    // Gestione di sicurezza se gli oggetti sono già compenetrati
+                    Vector3 contactPoint = h.distance == 0f ? h.collider.ClosestPoint(origin) : h.point;
+                    float distToCar = Vector3.Distance(origin, contactPoint);
+
+                    if (distToCar < gap)
+                    {
+                        gap = distToCar;
+                        nearestRb = h.collider.attachedRigidbody;
+                        found = true;
+                    }
                 }
 
-                // --- IL FILTRO LOGICO ---
-                // Se l'ostacolo NON è nella mia stessa corsia, lo ignoro COMPLETAMENTE.
-                if (obstacleLaneIndex != this.myLaneIndex) continue;
+                // Se abbiamo trovato l'ostacolo più vicino in questo segmento, ci fermiamo
+                if (found) break;
 
-                if (h.distance < nearest)
-                {
-                    nearest = h.distance;
-                    nearestRb = h.collider.attachedRigidbody;
-                    found = true;
-                }
+                prevPoint = nextPoint;
             }
 
             if (!found) return false;
-
-            gap = Mathf.Max(0f, nearest);
+            
+            gap = Mathf.Max(0f, gap);
             if (nearestRb != null) obstacleSpeedMs = Vector3.Dot(nearestRb.linearVelocity, transform.forward);
             return true;
         }
+
+        /// <summary>
+        /// Calcola la distanza laterale esatta di un punto nel mondo rispetto alla Spline stradale.
+        /// Restituisce un valore compatibile con 'laneOffset'.
+        /// </summary>
+        // private float GetDynamicLateralOffset(Vector3 worldPos)
+        // {
+        //     var spline = roadSpline.Splines[splineIndex];
+            
+        //     // Convertiamo la posizione del mondo nello spazio locale della SplineContainer
+        //     Vector3 localPos = roadSpline.transform.InverseTransformPoint(worldPos);
+
+        //     // Troviamo il punto più vicino sulla curva della spline
+        //     UnityEngine.Splines.SplineUtility.GetNearestPoint(spline, localPos, out Unity.Mathematics.float3 nearestPos, out float t);
+
+        //     // Calcoliamo il vettore 'Destra' locale (la stessa matematica usata in SplineLanePoint)
+        //     Vector3 localTangent = spline.EvaluateTangent(t);
+        //     Vector3 localRight = Vector3.Cross(Vector3.up, localTangent).normalized;
+
+        //     // Vettore dal centro della strada verso l'oggetto
+        //     Vector3 centerToObj = localPos - (Vector3)nearestPos;
+
+        //     // Il Prodotto Scalare (Dot) ci dà la distanza con il segno corretto (+ a sinistra, - a destra)
+        //     float offset = Vector3.Dot(centerToObj, localRight);
+            
+        //     return offset;
+        // }
 
         private bool IsOwnCollider(Collider col)
         {
@@ -563,7 +605,8 @@ namespace DrivingSim
             float deltaX,
             float deltaV,
             float ownSpeedMs,
-            float desiredSpeedMs)
+            float desiredSpeedMs,
+            float dynamicRange)
         {
             // Distance thresholds
             float AD = effectiveVehicleLength + TD * ownSpeedMs;
@@ -576,12 +619,12 @@ namespace DrivingSim
             // Speed-difference perception thresholds
             float distFactor = hasObstacle
                 ? Mathf.Max(0f, deltaX - effectiveVehicleLength)
-                : detectionRange;
+                : dynamicRange;
             float PTN = -(kPTN * Mathf.Pow(Mathf.Max(0f, distFactor - xf), 2f));
             float PTP =  (kPTP * Mathf.Pow(distFactor + xf, 2f));
 
             // Regime classification
-            if (!hasObstacle || deltaX > detectionRange * 0.95f)
+            if (!hasObstacle || deltaX > dynamicRange * 0.95f)
             {
                 currentRegime = FritzscheRegime.FreeDriving;
             }
@@ -707,31 +750,47 @@ namespace DrivingSim
                 Gizmos.DrawLine(transform.position + Vector3.up * 0.5f, tgt);
             }
 
-            // 3. CILINDRO DI VISIONE (SphereCast - Fritzsche Model)
-            // Usiamo la stessa logica del metodo DetectObstacle per coerenza visiva
-            float startOffset = 2.0f; // Origine arretrata per eliminare il punto cieco
-            Vector3 origin = transform.position + transform.up * 0.3f + transform.forward * startOffset;
-            Vector3 endPoint = origin + transform.forward * (detectionRange - startOffset);
+            // 3. CILINDRO DI VISIONE CURVO (Si piega con la strada in Play Mode)
+            if (Application.isPlaying && waypoints != null)
+            {
+                float startOffset = 1.0f;
+                Vector3 prevPoint = transform.position + transform.up * 0.3f + transform.forward * startOffset;
+                float step = 10f;
 
-            // Colore Giallo per la visione
-            Gizmos.color = Color.yellow;
-            UnityEditor.Handles.color = Color.yellow;
+                float currentSpeed = rb != null ? rb.linearVelocity.magnitude : 0f;
+                float dynamicRange = Mathf.Max(detectionRange, currentSpeed * 3.5f);
 
-            // Disegna i dischi di sezione (Inizio e Fine)
-            UnityEditor.Handles.DrawWireDisc(origin, transform.forward, detectionRadius);
-            UnityEditor.Handles.DrawWireDisc(endPoint, transform.forward, detectionRadius);
+                Gizmos.color = Color.yellow;
+                UnityEditor.Handles.color = Color.yellow;
+                
+                UnityEditor.Handles.DrawWireDisc(prevPoint, transform.forward, detectionRadius);
 
-            // Disegna le linee di collegamento (i 4 lati del "tubo")
-            Vector3 upOffset = transform.up * detectionRadius;
-            Vector3 rightOffset = transform.right * detectionRadius;
+                for (float d = step; d <= dynamicRange; d += step)
+                {
+                    Vector3 nextPoint = GetPointAheadOnPath(d) + transform.up * 0.3f;
+                    Vector3 dir = nextPoint - prevPoint;
+                    if (dir.magnitude < 0.1f) break;
 
-            Gizmos.DrawLine(origin + upOffset, endPoint + upOffset);       // Sopra
-            Gizmos.DrawLine(origin - upOffset, endPoint - upOffset);       // Sotto
-            Gizmos.DrawLine(origin + rightOffset, endPoint + rightOffset); // Destra
-            Gizmos.DrawLine(origin - rightOffset, endPoint - rightOffset); // Sinistra
+                    UnityEditor.Handles.DrawWireDisc(nextPoint, dir.normalized, detectionRadius);
+                    
+                    Vector3 upOffset = Vector3.up * detectionRadius;
+                    Vector3 rightOffset = Vector3.Cross(dir.normalized, Vector3.up).normalized * detectionRadius;
 
-            // Sferetta finale per indicare il limite della vista
-            Gizmos.DrawWireSphere(endPoint, 0.3f);
+                    Gizmos.DrawLine(prevPoint + upOffset, nextPoint + upOffset);
+                    Gizmos.DrawLine(prevPoint - upOffset, nextPoint - upOffset);
+                    Gizmos.DrawLine(prevPoint + rightOffset, nextPoint + rightOffset);
+                    Gizmos.DrawLine(prevPoint - rightOffset, nextPoint - rightOffset);
+
+                    prevPoint = nextPoint;
+                }
+            }
+            else 
+            {
+                // Fallback statico per l'Editor
+                Vector3 origin = transform.position + transform.up * 0.3f + transform.forward * 1.0f;
+                Gizmos.color = Color.yellow;
+                Gizmos.DrawWireSphere(origin, detectionRadius);
+            }
 
             // 4. ETICHETTE DI STATO (Testo sopra l'auto)
             if (Application.isPlaying)
