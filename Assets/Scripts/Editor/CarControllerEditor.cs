@@ -26,11 +26,16 @@ namespace DrivingSim
         private SerializedProperty frontWheelDrive;
         private SerializedProperty rearWheelDrive;
 
+        private SerializedProperty enableSpeedLimit;
+        private SerializedProperty maxDisplaySpeedKmh;
+        private SerializedProperty limitHardness;
+
         private bool referencesFoldout = true;
         private bool wheelCollidersFoldout = true;
         private bool wheelVisualsFoldout = true;
         private bool engineDrivetrainFoldout = true;
         private bool driveConfigFoldout = true;
+        private bool speedLimitFoldout = true;
 
         private void OnEnable()
         {
@@ -53,6 +58,10 @@ namespace DrivingSim
 
             frontWheelDrive = serializedObject.FindProperty("frontWheelDrive");
             rearWheelDrive = serializedObject.FindProperty("rearWheelDrive");
+            
+            enableSpeedLimit = serializedObject.FindProperty("enableSpeedLimit");
+            maxDisplaySpeedKmh = serializedObject.FindProperty("maxDisplaySpeedKmh");
+            limitHardness = serializedObject.FindProperty("limitHardness");
         }
 
         public override void OnInspectorGUI()
@@ -121,6 +130,18 @@ namespace DrivingSim
                 EditorGUI.indentLevel++;
                 EditorGUILayout.PropertyField(frontWheelDrive, new GUIContent("Front Wheel Drive"));
                 EditorGUILayout.PropertyField(rearWheelDrive, new GUIContent("Rear Wheel Drive"));
+                EditorGUI.indentLevel--;
+            }
+
+            
+            EditorGUILayout.Space();
+            speedLimitFoldout = EditorGUILayout.Foldout(speedLimitFoldout, "Speed Limit Settings", true);
+            if (speedLimitFoldout)
+            {
+                EditorGUI.indentLevel++;
+                EditorGUILayout.PropertyField(enableSpeedLimit);
+                EditorGUILayout.PropertyField(maxDisplaySpeedKmh, new GUIContent("Max Speed (km/h)"));
+                EditorGUILayout.PropertyField(limitHardness);
                 EditorGUI.indentLevel--;
             }
 

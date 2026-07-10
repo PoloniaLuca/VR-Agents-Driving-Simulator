@@ -26,6 +26,9 @@ namespace DrivingSim
         public float Handbrake          { get; private set; }
         public bool  ToggleReversePressed => false;
 
+        
+        public int myLaneIndex;
+
         // ─────────────────────────────────────────────────────────────────────
         //  Inspector – Spline & waypoints
         // ─────────────────────────────────────────────────────────────────────
@@ -45,7 +48,7 @@ namespace DrivingSim
         [Tooltip("Arc-length interval [m] between auto-generated waypoints.\n" +
                  "Smaller = follows curves more precisely but costs marginally more.\n" +
                  "Good default: 15–25 m.")]
-        [SerializeField] private float waypointSpacing = 20f;
+        [SerializeField] private float waypointSpacing = 10f;
 
         // ─────────────────────────────────────────────────────────────────────
         //  Inspector – Pure-Pursuit steering
@@ -53,11 +56,11 @@ namespace DrivingSim
         [Header("Pure-Pursuit Steering")]
         [Tooltip("Base look-ahead distance [m] at low/zero speed.\n" +
                  "Keep small (4-8 m) so the car reacts to curves in time.")]
-        [SerializeField] private float lookAheadBase = 6f;
+        [SerializeField] private float lookAheadBase = 10f;
 
         [Tooltip("Maximum look-ahead distance [m] at high speed.\n" +
                  "Prevents over-steering on straights. 12-20 m.")]
-        [SerializeField] private float maxLookAhead = 14f;
+        [SerializeField] private float maxLookAhead = 20f;
 
         [Tooltip("Speed-based look-ahead scaling [m per m/s].\n" +
                  "LookAhead = lookAheadBase + speed × this. 0.3-0.5.")]
@@ -92,26 +95,26 @@ namespace DrivingSim
         // ─────────────────────────────────────────────────────────────────────
         [Header("Speed Profile")]
         [Tooltip("Target cruising speed [km/h] on a clear road.")]
-        [SerializeField] private float desiredSpeedKmh = 120f;
+        [SerializeField] private float desiredSpeedKmh = 100f;
 
         [Tooltip("Hard speed cap [km/h]. Vehicle never exceeds this.")]
-        [SerializeField] private float maxSpeedKmh = 160f;
+        [SerializeField] private float maxSpeedKmh = 110f;
 
         [Tooltip("Throttle aggressiveness [0-1].")]
         [SerializeField, Range(0.1f, 1f)] private float throttleAggressiveness = 0.8f;
 
         [Tooltip("Brake aggressiveness [0-1].")]
-        [SerializeField, Range(0.1f, 1f)] private float brakeAggressiveness = 0.9f;
+        [SerializeField, Range(0.1f, 1f)] private float brakeAggressiveness = 1f;
 
         // ─────────────────────────────────────────────────────────────────────
         //  Inspector – Fritzsche car-following  (Olstam & Tapani 2004, §3.5)
         // ─────────────────────────────────────────────────────────────────────
         [Header("Fritzsche Car-Following Parameters")]
         [Tooltip("Desired time gap TD [s]. (Paper default: 1.8)")]
-        [SerializeField] private float TD = 1.8f;
+        [SerializeField] private float TD = 2.5f;
 
         [Tooltip("Risky time gap Tr [s]. Below this the driver brakes hard. (Paper: 0.5)")]
-        [SerializeField] private float Tr = 0.5f;
+        [SerializeField] private float Tr = 0.8f;
 
         [Tooltip("Safe time gap Ts [s]. Min gap to accept positive accel. (Paper: 1.0)")]
         [SerializeField] private float Ts = 1.0f;
@@ -138,7 +141,7 @@ namespace DrivingSim
         [SerializeField] private float aMaxBrake = 6.0f;
 
         [Tooltip("s_{n-1} [m]: effective vehicle length incl. standstill gap. (Paper: 6)")]
-        [SerializeField] private float effectiveVehicleLength = 6.0f;
+        [SerializeField] private float effectiveVehicleLength = 8.0f;
 
         // ─────────────────────────────────────────────────────────────────────
         //  Inspector – Obstacle detection
@@ -150,7 +153,7 @@ namespace DrivingSim
 
         [Tooltip("Radius [m] of the forward SphereCast.\n" +
                  "Keep slightly narrower than the lane half-width (~1.0–1.4 m).")]
-        [SerializeField] private float detectionRadius = 1.2f;
+        [SerializeField] private float detectionRadius = 1.0f;
 
         [Tooltip("Layer mask for objects treated as obstacles (vehicles + statics).\n" +
                  "Exclude the road surface layer to avoid false positives.")]
@@ -224,12 +227,15 @@ namespace DrivingSim
             int             splineIdx,
             float           offset,
             float           desiredSpeedKmhValue,
-            float           maxSpeedKmhValue = 0f)
+            float           maxSpeedKmhValue = 0f,
+            int laneIdx = -1)
         {
             roadSpline       = spline;
             splineIndex      = splineIdx;
             laneOffset       = offset;
             desiredSpeedKmh  = desiredSpeedKmhValue;
+            myLaneIndex      = laneIdx;
+            
             if (maxSpeedKmhValue > 0f)
                 maxSpeedKmh  = Mathf.Max(desiredSpeedKmhValue, maxSpeedKmhValue);
 
@@ -491,45 +497,53 @@ namespace DrivingSim
         /// </summary>
         private bool DetectObstacle(out float gap, out float obstacleSpeedMs)
         {
-            gap              = float.MaxValue;
-            obstacleSpeedMs  = 0f;
+            gap = float.MaxValue;
+            obstacleSpeedMs = 0f;
 
-            // Offset origin past own front bumper so we never self-hit
-            Vector3 origin = transform.position
-                             + transform.up      * 0.3f
-                             + transform.forward * (effectiveVehicleLength * 0.5f
-                                                    + detectionRadius + 0.1f);
+            // Origine arretrata per non avere punti ciechi
+            Vector3 origin = transform.position + transform.up * 0.3f + transform.forward * 2.0f;
+            float castDist = detectionRange - 2.0f;
 
-            float castDist = Mathf.Max(0.1f,
-                detectionRange - effectiveVehicleLength * 0.5f - detectionRadius);
-
-            RaycastHit[] hits = Physics.SphereCastAll(
-                origin, detectionRadius, transform.forward, castDist,
-                obstacleMask, QueryTriggerInteraction.Ignore);
-
-            float   nearest     = float.MaxValue;
-            bool    found       = false;
+            RaycastHit[] hits = Physics.SphereCastAll(origin, detectionRadius, transform.forward, castDist, obstacleMask, QueryTriggerInteraction.Ignore);
+            float nearest = float.MaxValue;
+            bool found = false;
             Rigidbody nearestRb = null;
 
             foreach (var h in hits)
             {
                 if (IsOwnCollider(h.collider)) continue;
+
+                // Prendiamo l'indice della corsia dell'oggetto colpito
+                int obstacleLaneIndex = -1;
+
+                // Se è un'altra AI, leggiamo il suo myLaneIndex
+                AICarInput otherAI = h.collider.GetComponentInParent<AICarInput>();
+                if (otherAI != null)
+                {
+                    obstacleLaneIndex = otherAI.myLaneIndex;
+                }
+                // Se è il Player, sappiamo che per lo Study Plan è SEMPRE nella corsia 0
+                else if (h.collider.CompareTag("Player"))
+                {
+                    obstacleLaneIndex = -1;
+                }
+
+                // --- IL FILTRO LOGICO ---
+                // Se l'ostacolo NON è nella mia stessa corsia, lo ignoro COMPLETAMENTE.
+                if (obstacleLaneIndex != this.myLaneIndex) continue;
+
                 if (h.distance < nearest)
                 {
-                    nearest   = h.distance;
+                    nearest = h.distance;
                     nearestRb = h.collider.attachedRigidbody;
-                    found     = true;
+                    found = true;
                 }
             }
 
             if (!found) return false;
 
             gap = Mathf.Max(0f, nearest);
-
-            if (nearestRb != null)
-                obstacleSpeedMs = Vector3.Dot(nearestRb.linearVelocity, transform.forward);
-            // static object → obstacleSpeedMs stays 0
-
+            if (nearestRb != null) obstacleSpeedMs = Vector3.Dot(nearestRb.linearVelocity, transform.forward);
             return true;
         }
 
@@ -666,54 +680,82 @@ namespace DrivingSim
 #if UNITY_EDITOR
         private void OnDrawGizmosSelected()
         {
-            // Waypoints
+            // 1. DISEGNO WAYPOINTS (Percorso che l'auto sta seguendo)
             if (waypoints != null)
             {
                 for (int i = 0; i < waypointCount; i++)
                 {
-                    Gizmos.color = (i == currentWPIndex) ? Color.green : Color.grey;
+                    Gizmos.color = (i == currentWPIndex) ? Color.green : new Color(0.7f, 0.7f, 0.7f, 0.5f);
                     Gizmos.DrawSphere(waypoints[i], 0.3f);
                     if (i < waypointCount - 1)
                     {
-                        Gizmos.color = Color.grey;
+                        Gizmos.color = new Color(0.5f, 0.5f, 0.5f, 0.3f);
                         Gizmos.DrawLine(waypoints[i], waypoints[i + 1]);
                     }
                 }
             }
 
-            // Look-ahead target (cyan)
+            // 2. TARGET PURE-PURSUIT (Dove l'auto punta per sterzare)
             if (waypoints != null && Application.isPlaying)
             {
                 float speedMs = rb != null ? rb.linearVelocity.magnitude : 0f;
-                float L       = Mathf.Clamp(lookAheadBase + speedMs * speedLookAheadScale,
-                                            lookAheadBase, maxLookAhead);
-                Vector3 tgt   = GetPointAheadOnPath(L);
-                Gizmos.color  = Color.cyan;
-                Gizmos.DrawSphere(tgt, 0.4f);
-                Gizmos.DrawLine(transform.position, tgt);
+                float L = Mathf.Clamp(lookAheadBase + speedMs * speedLookAheadScale, lookAheadBase, maxLookAhead);
+                Vector3 tgt = GetPointAheadOnPath(L);
+                
+                Gizmos.color = Color.cyan;
+                Gizmos.DrawWireSphere(tgt, 0.5f);
+                Gizmos.DrawLine(transform.position + Vector3.up * 0.5f, tgt);
             }
 
-            // Detection ray (yellow)
-            Gizmos.color = Color.yellow;
-            Gizmos.DrawLine(
-                transform.position + transform.up * 0.3f,
-                transform.position + transform.up * 0.3f + transform.forward * detectionRange);
+            // 3. CILINDRO DI VISIONE (SphereCast - Fritzsche Model)
+            // Usiamo la stessa logica del metodo DetectObstacle per coerenza visiva
+            float startOffset = 2.0f; // Origine arretrata per eliminare il punto cieco
+            Vector3 origin = transform.position + transform.up * 0.3f + transform.forward * startOffset;
+            Vector3 endPoint = origin + transform.forward * (detectionRange - startOffset);
 
-            // Regime label
+            // Colore Giallo per la visione
+            Gizmos.color = Color.yellow;
+            UnityEditor.Handles.color = Color.yellow;
+
+            // Disegna i dischi di sezione (Inizio e Fine)
+            UnityEditor.Handles.DrawWireDisc(origin, transform.forward, detectionRadius);
+            UnityEditor.Handles.DrawWireDisc(endPoint, transform.forward, detectionRadius);
+
+            // Disegna le linee di collegamento (i 4 lati del "tubo")
+            Vector3 upOffset = transform.up * detectionRadius;
+            Vector3 rightOffset = transform.right * detectionRadius;
+
+            Gizmos.DrawLine(origin + upOffset, endPoint + upOffset);       // Sopra
+            Gizmos.DrawLine(origin - upOffset, endPoint - upOffset);       // Sotto
+            Gizmos.DrawLine(origin + rightOffset, endPoint + rightOffset); // Destra
+            Gizmos.DrawLine(origin - rightOffset, endPoint - rightOffset); // Sinistra
+
+            // Sferetta finale per indicare il limite della vista
+            Gizmos.DrawWireSphere(endPoint, 0.3f);
+
+            // 4. ETICHETTE DI STATO (Testo sopra l'auto)
             if (Application.isPlaying)
             {
-                UnityEditor.Handles.Label(
-                    transform.position + Vector3.up * 3f,
-                    $"{name}\nRegime:{currentRegime}  WP:{currentWPIndex}/{waypointCount - 1}\n" +
-                    $"T:{Throttle:F2}  B:{Brake:F2}  S:{Steering:F2}");
+                string info = $"{name}\n" +
+                              $"Regime: <color=yellow>{currentRegime}</color>\n" +
+                              $"Speed: {(rb.linearVelocity.magnitude * 3.6f):F1} km/h\n" +
+                              $"Lane Offset: {laneOffset:F2}m\n" +
+                              $"T:{Throttle:F2} B:{Brake:F2} S:{Steering:F2}";
+
+                UnityEditor.Handles.BeginGUI();
+                GUIStyle style = new GUIStyle(GUI.skin.label) { richText = true, fontSize = 12 };
+                Vector3 labelPos = transform.position + Vector3.up * 3.5f;
+                Vector2 guiPoint = UnityEditor.HandleUtility.WorldToGUIPoint(labelPos);
+                GUI.Label(new Rect(guiPoint.x - 50, guiPoint.y - 60, 200, 100), info, style);
+                UnityEditor.Handles.EndGUI();
             }
         }
 
         private void OnDrawGizmos()
         {
-            // Draw waypoints even when not selected (faint)
+            // Disegna la spline della corsia in modo molto tenue anche quando non selezionata
             if (waypoints == null) return;
-            Gizmos.color = new Color(0.5f, 0.5f, 0.5f, 0.3f);
+            Gizmos.color = new Color(0.3f, 0.5f, 1f, 0.1f);
             for (int i = 0; i < waypointCount - 1; i++)
                 Gizmos.DrawLine(waypoints[i], waypoints[i + 1]);
         }

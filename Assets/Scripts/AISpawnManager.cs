@@ -97,7 +97,9 @@ namespace DrivingSim
                  "Index 0 = rightmost lane (slowest), last index = leftmost (fastest).\n" +
                  "e.g. 2 lanes: [80, 100]  |  3 lanes: [80, 90, 100]\n" +
                  "If the array is shorter than laneCount, the last value is reused.")]
-        [SerializeField] private float[] laneMaxSpeedsKmh = { 80f, 90f, 100f };
+                 
+        // [SerializeField] private float[] laneMaxSpeedsKmh = { 80f, 90f, 100f };
+        [SerializeField] private float[] laneMaxSpeedsKmh = { 90f, 100f };
 
         [Header("Car Variety")]
         [Tooltip("Desired speed is randomised between (laneMax - speedVariance) and laneMax.\n" +
@@ -309,6 +311,7 @@ namespace DrivingSim
 
             // Configure AICarInput – must happen before Start() runs on the new GO
             AICarInput ai = car.GetComponent<AICarInput>();
+            ai.myLaneIndex = laneIndex; 
             if (ai == null)
             {
                 Debug.LogError($"[AISpawnManager] Prefab '{prefab.name}' has no AICarInput.", this);
@@ -321,7 +324,7 @@ namespace DrivingSim
             float desiredSpeed = Mathf.Max(10f, laneMax - Random.Range(0f, speedVarianceKmh));
             float maxSpeed     = laneMax;
 
-            ai.Configure(roadSpline, splineIndex, offset, desiredSpeed, maxSpeed);
+            ai.Configure(roadSpline, splineIndex, offset, desiredSpeed, maxSpeed, laneIndex); 
 
             // Randomise motor torque for variety
             CarController cc = car.GetComponent<CarController>();
