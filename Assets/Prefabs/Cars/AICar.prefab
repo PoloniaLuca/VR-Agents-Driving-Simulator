@@ -313,7 +313,7 @@ MonoBehaviour:
   aMaxBrake: 6
   effectiveVehicleLength: 6
   detectionRange: 60
-  detectionRadius: 1
+  detectionRadius: 1.5
   obstacleMask:
     serializedVersion: 2
     m_Bits: 192
