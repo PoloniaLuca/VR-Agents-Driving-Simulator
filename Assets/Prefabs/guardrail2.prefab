@@ -12,6 +12,10 @@ PrefabInstance:
       propertyPath: m_Name
       value: guardrail2
       objectReference: {fileID: 0}
+    - target: {fileID: -5857889594237169964, guid: 2a97a1202fc8a484b86812da0ce65aeb, type: 3}
+      propertyPath: m_CastShadows
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: -3526449794801578234, guid: 2a97a1202fc8a484b86812da0ce65aeb, type: 3}
       propertyPath: m_LocalScale.x
       value: 0.64488

@@ -127,6 +127,9 @@ namespace DrivingSim
         private float            spawnTimer;
         private float[]          laneSpawnTimers;   // per-lane cooldown
 
+        
+        private bool isSpawningActive = false;
+
         // ─────────────────────────────────────────────────────────────────────
         //  Unity lifecycle
         // ─────────────────────────────────────────────────────────────────────
@@ -150,15 +153,43 @@ namespace DrivingSim
             BuildLaneOffsets();
         }
 
+        // Metodo per far partire il traffico
+        public void StartTraffic()
+        {
+            if (isSpawningActive) return;
+            
+            isSpawningActive = true;
+            PopulateInitial(); // Crea la popolazione iniziale
+            spawnTimer = spawnInterval;
+            Debug.Log("[AISpawnManager] Traffico ATTIVATO.");
+        }
+
+        // Metodo per fermare e cancellare tutto il traffico
+        public void StopAndClearTraffic()
+        {
+            isSpawningActive = false;
+            
+            // Distruggi fisicamente tutte le auto attive
+            foreach (var car in activeCars)
+            {
+                if (car != null) Destroy(car);
+            }
+            activeCars.Clear();
+            Debug.Log("[AISpawnManager] Traffico RESETTATO e rimosso.");
+        }
+
         private void Start()
         {
             laneSpawnTimers = new float[laneOffsets.Length];
-            PopulateInitial();
-            spawnTimer = spawnInterval;
+            // PopulateInitial();
+            // spawnTimer = spawnInterval;
         }
 
         private void Update()
         {
+            
+            if (!isSpawningActive) return;
+
             // Destroy cars that have reached the end of the spline
             CleanupFinishedCars();
 

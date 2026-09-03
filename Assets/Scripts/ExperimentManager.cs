@@ -2,6 +2,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using TMPro;
+using DrivingSim;
 
 // --- STRUTTURE DATI ---
 public enum ExperimentState { NotStarted, PracticeInstruction, PracticeDriving, InstructionScreen, Driving, MidSessionBreak, Finished }
@@ -59,6 +60,14 @@ public class ExperimentManager : MonoBehaviour
     public TextMeshProUGUI testoCartelloBianco_4_0km;
 
 
+    [Header("Ottimizzazione Performance")]
+    public GameObject ambientePratica;      // Trascina qui il contenitore Pratica
+    public GameObject ambienteSperimentale; // Trascina qui il contenitore Sperimentale
+
+    [Header("Gestione Traffico AI")]
+    [Tooltip("Trascina qui ENTRAMBI gli AISpawnManager (Nord e Sud)")]
+    public List<AISpawnManager> aiSpawners = new List<AISpawnManager>();
+
     public SpeedWarningSystem speedWarning; // Trascina qui l'oggetto dell'auto
     void Start()
     {
@@ -80,7 +89,7 @@ public class ExperimentManager : MonoBehaviour
         // Puoi mettere il nome dell'uscita che hai scritto fisicamente nei cartelli della pratica
         pauseNextExitText.text = "Next exit: <b>MONZA</b>"; 
 
-        float timer = 2f; 
+        float timer = 30f; 
         while (timer > 0)
         {
             pauseTimerText.text = $"Starting practice in: {Mathf.Ceil(timer)}s";
@@ -95,6 +104,16 @@ public class ExperimentManager : MonoBehaviour
     private void IniziaGuidaPratica()
     {
         currentState = ExperimentState.PracticeDriving;
+        
+        // --- OTTIMIZZAZIONE ---
+        if(ambientePratica != null) ambientePratica.SetActive(true);
+        if(ambienteSperimentale != null) ambienteSperimentale.SetActive(false); // Spegne AI e autostrada lunga
+
+        
+        // Spegniamo e puliamo tutti gli spawner per sicurezza
+        foreach(var spawner in aiSpawners) {
+            if(spawner != null) spawner.StopAndClearTraffic();
+        }
         
         if (speedWarning != null) speedWarning.ResetWarningSystem();
         Debug.Log("Iniziato Trial di Familiarizzazione");
@@ -144,7 +163,7 @@ public class ExperimentManager : MonoBehaviour
         ApplicaStimoloAiCartelli(trialAttuale);
 
         // Timer di 30 secondi
-        float timer = 1f;
+        float timer = 30f;
         while (timer > 0)
         {
             pauseTimerText.text = $"Starting in: {Mathf.Ceil(timer)}s";
@@ -159,6 +178,19 @@ public class ExperimentManager : MonoBehaviour
     private void IniziaGuidaSperimentale()
     {
         currentState = ExperimentState.Driving;
+        
+        // --- OTTIMIZZAZIONE ---
+        if(ambientePratica != null) ambientePratica.SetActive(false); // Spegne la strada di prova
+        if(ambienteSperimentale != null) ambienteSperimentale.SetActive(true); // Accende tutto il sistema complesso
+
+        
+        foreach(var spawner in aiSpawners) {
+            if(spawner != null) spawner.StartTraffic();
+        }
+
+        
+        // if(aiSpawnManager != null) aiSpawnManager.StartTraffic(); // Fa nascere le macchine AI
+        
         Debug.Log($"Iniziato Trial {currentTrialIndex + 1}");
         NascondiPMV();
         
@@ -209,6 +241,12 @@ public class ExperimentManager : MonoBehaviour
             currentTrialIndex++;
             AvviaProssimoTrial();
         }
+
+        foreach(var spawner in aiSpawners) {
+            if(spawner != null) spawner.StopAndClearTraffic();
+        }
+    
+        if(ambienteSperimentale != null) ambienteSperimentale.SetActive(false);
     }
 
     private IEnumerator SchermataFinePratica()
