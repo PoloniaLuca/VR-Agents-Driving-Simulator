@@ -2,7 +2,8 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using TMPro;
-using DrivingSim;
+using VehiclePhysics;
+using UnityEngine.UI;
 
 // --- STRUTTURE DATI ---
 public enum ExperimentState { NotStarted, PracticeInstruction, PracticeDriving, InstructionScreen, Driving, MidSessionBreak, Finished }
@@ -23,8 +24,11 @@ public class StimoloVMB
 public class ExperimentManager : MonoBehaviour
 {
     [Header("Impostazioni Partecipante")]
-    [Tooltip("Inserire 1, 2, 3 o 4 in base al gruppo del Quadrato Latino")]
-    [Range(1, 4)]
+    [Tooltip("ID univoco del partecipante; viene usato nel nome del CSV.")]
+    public string participantId = "";
+
+    [Tooltip("Gruppo del partecipante.")]
+    [Range(1, 6)]
     public int gruppoPartecipante = 1;
     
     [Header("Stato Corrente (Sola Lettura)")]
@@ -32,14 +36,15 @@ public class ExperimentManager : MonoBehaviour
     public int currentTrialIndex = 0;
     public List<StimoloVMB> trialSequence = new List<StimoloVMB>();
 
-    [Header("Riferimenti Veicolo e Teletrasporto")]
-    public GameObject veicoloGiocatore; 
+    [Header("VPP Veicolo Giocatore")]
+    [Tooltip("Root GameObject del veicolo VPP del partecipante.")]
+    public GameObject veicoloGiocatore;
     [Tooltip("Punto in cui appare l'auto per il trial di FAMILIARIZZAZIONE")]
-    public Transform puntoDiPartenzaPratica; 
+    public Transform puntoDiPartenzaPratica;
     [Tooltip("Punto in cui appare l'auto per i TRIAL SPERIMENTALI (1-16)")]
-    public Transform puntoDiPartenzaSperimentale; 
-    [Tooltip("Trascina qui lo script che gestisce volante e pedali")]
-    public Behaviour scriptControlloAuto;
+    public Transform puntoDiPartenzaSperimentale;
+
+    private VPVehicleController vppVehicle;
 
     [Header("Riferimenti DataLogger")]
     [Tooltip("Trascina qui l'oggetto che contiene lo script DataLogger")]
@@ -50,6 +55,13 @@ public class ExperimentManager : MonoBehaviour
     public TextMeshProUGUI pauseInstructionsText;
     public TextMeshProUGUI pauseNextExitText;
     public TextMeshProUGUI pauseTimerText;
+
+    [Header("Schermata Input Partecipante")]
+    public GameObject participantInputPanel;
+    public TMP_InputField participantIdInput;
+    public TMP_Dropdown participantGroupDropdown;
+    public Button participantStartButton;
+    public TextMeshProUGUI participantFeedbackText;
 
     [Header("Riferimenti Cartelli 3D (Nella Scena)")]
     public GameObject modelloFisicoPMV;
@@ -66,25 +78,187 @@ public class ExperimentManager : MonoBehaviour
 
     [Header("Gestione Traffico AI")]
     [Tooltip("Trascina qui ENTRAMBI gli AISpawnManager (Nord e Sud)")]
-    public List<AISpawnManager> aiSpawners = new List<AISpawnManager>();
+    public List<DrivingSim.AISpawnManager> aiSpawners = new List<DrivingSim.AISpawnManager>();
 
-    public SpeedWarningSystem speedWarning; // Trascina qui l'oggetto dell'auto
+    public SpeedWarningSystem speedWarning;
+
+    public VPVehicleController PlayerVehicle => vppVehicle;
+
+    private void Awake()
+    {
+        CachePlayerVehicle();
+    }
+
+    private void CachePlayerVehicle()
+    {
+        if (veicoloGiocatore == null)
+        {
+            Debug.LogError("[ExperimentManager] veicoloGiocatore non assegnato.", this);
+            return;
+        }
+
+        vppVehicle = veicoloGiocatore.GetComponentInChildren<VPVehicleController>();
+        if (vppVehicle == null)
+            Debug.LogError("[ExperimentManager] Nessun VPVehicleController trovato nel veicolo giocatore.", this);
+    }
+
     void Start()
     {
-        // All'avvio, nascondiamo i testi del portale e carichiamo la matrice del gruppo scelto
         NascondiPMV();
+
+        // Keep the vehicle stopped until participant information is confirmed.
+        ImpostaVeicoloInPausa(true);
+
+        if (participantIdInput != null)
+            participantIdInput.text = participantId;
+
+        if (participantGroupDropdown != null &&
+            participantGroupDropdown.options.Count > 0)
+        {
+            participantGroupDropdown.value = Mathf.Clamp(
+                gruppoPartecipante - 1,
+                0,
+                participantGroupDropdown.options.Count - 1
+            );
+
+            participantGroupDropdown.RefreshShownValue();
+        }
+
+        if (participantStartButton != null)
+        {
+            participantStartButton.onClick.RemoveListener(
+                ConfermaPartecipanteEAvvia
+            );
+
+            participantStartButton.onClick.AddListener(
+                ConfermaPartecipanteEAvvia
+            );
+        }
+
+        if (pauseScreenCanvas != null)
+            pauseScreenCanvas.SetActive(true);
+
+        MostraSchermataInputPartecipante();
+    }
+
+    // --- FASE DI INPUT ---
+
+    private void MostraSchermataInputPartecipante()
+    {
+        if (participantInputPanel != null)
+            participantInputPanel.SetActive(true);
+
+        // At startup, only the participant input panel is visible.
+        if (pauseInstructionsText != null)
+            pauseInstructionsText.gameObject.SetActive(false);
+
+        if (pauseNextExitText != null)
+            pauseNextExitText.gameObject.SetActive(false);
+
+        if (pauseTimerText != null)
+            pauseTimerText.gameObject.SetActive(false);
+
+        if (participantFeedbackText != null)
+            participantFeedbackText.text = "";
+    }
+
+    private void MostraTestiPausa()
+    {
+        if (pauseInstructionsText != null)
+            pauseInstructionsText.gameObject.SetActive(true);
+
+        if (pauseNextExitText != null)
+            pauseNextExitText.gameObject.SetActive(true);
+
+        if (pauseTimerText != null)
+            pauseTimerText.gameObject.SetActive(true);
+    }
+
+    public void ConfermaPartecipanteEAvvia()
+    {
+        string id = participantIdInput != null
+            ? participantIdInput.text.Trim()
+            : participantId.Trim();
+
+        int gruppo = gruppoPartecipante;
+
+        if (participantGroupDropdown != null &&
+            participantGroupDropdown.options.Count > 0)
+        {
+            // Dropdown is zero-based; experiment groups are 1-based.
+            gruppo = participantGroupDropdown.value + 1;
+        }
+
+        // Validate ID.
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            MostraErroreInput("Inserisci un Participant ID.");
+            return;
+        }
+
+        // Validate group.
+        if (gruppo < 1 || gruppo > 6)
+        {
+            MostraErroreInput("Seleziona un gruppo da 1 a 6.");
+            return;
+        }
+
+        // Current source contains sequences only for groups 1-4.
+        if (gruppo > 4)
+        {
+            MostraErroreInput(
+                "I gruppi 5-6 non hanno ancora una sequenza definita."
+            );
+            return;
+        }
+
+        // Store participant information.
+        participantId = id;
+        gruppoPartecipante = gruppo;
+
+        Debug.Log($"participantId: {participantId}\ngruppoPartecipante: {gruppoPartecipante}");
+
+        // Preserve existing trial-sequence logic.
         CaricaSequenzaGruppo(gruppoPartecipante);
-        
+
+        // Give the information to the logger.
+        if (dataLogger != null)
+        {
+            dataLogger.SetParticipantInfo(
+                participantId,
+                gruppoPartecipante
+            );
+        }
+
+        // Hide participant screen.
+        if (participantInputPanel != null)
+            participantInputPanel.SetActive(false);
+
+        // Restore the normal pause-screen texts.
+        MostraTestiPausa();
+
+        // Continue with the existing experiment flow.
         StartCoroutine(FasePraticaIstruzioni());
     }
-    
+
+    private void MostraErroreInput(string messaggio)
+    {
+        if (participantFeedbackText != null)
+            participantFeedbackText.text = messaggio;
+
+        Debug.LogWarning("[ExperimentManager] " + messaggio);
+    }
+        
     // --- FASE DI FAMILIARIZZAZIONE (TRIAL 0) ---
     private IEnumerator FasePraticaIstruzioni()
     {
         currentState = ExperimentState.PracticeInstruction;
         
         pauseScreenCanvas.SetActive(true);
-        pauseInstructionsText.text = "PRACTICE TRIAL\nDrive in the right lane. Maintain ~80 km/h.\nTake the exit when it appears.";
+        MostraTestiPausa();
+
+        pauseInstructionsText.text =
+            "PRACTICE TRIAL\nDrive in the right lane. Maintain ~80 km/h.\nTake the exit when it appears.";
         
         // Puoi mettere il nome dell'uscita che hai scritto fisicamente nei cartelli della pratica
         pauseNextExitText.text = "Next exit: <b>MONZA</b>"; 
@@ -118,14 +292,8 @@ public class ExperimentManager : MonoBehaviour
         if (speedWarning != null) speedWarning.ResetWarningSystem();
         Debug.Log("Iniziato Trial di Familiarizzazione");
 
-        if (veicoloGiocatore != null && puntoDiPartenzaPratica != null)
-        {
-            veicoloGiocatore.transform.position = puntoDiPartenzaPratica.position;
-            veicoloGiocatore.transform.rotation = puntoDiPartenzaPratica.rotation;
-            AzzeraFisicaAuto();
-        }
-
-        if (scriptControlloAuto != null) scriptControlloAuto.enabled = true;
+        PosizionaEVeicolo(puntoDiPartenzaPratica);
+        ImpostaVeicoloInPausa(false);
     }
 
     
@@ -156,7 +324,10 @@ public class ExperimentManager : MonoBehaviour
 
         // Setup Schermo Grigio 2D
         pauseScreenCanvas.SetActive(true);
-        pauseInstructionsText.text = "Drive in the right lane. Maintain ~80 km/h.\nTake the exit when it appears.\n<size=80%>(If your speed drops well below normal highway speed, you will hear a short beep as a reminder.).</size>";
+        MostraTestiPausa();
+
+        pauseInstructionsText.text =
+            "Drive in the right lane. Maintain ~80 km/h.\nTake the exit when it appears.\n<size=80%>(If your speed drops well below normal highway speed, you will hear a short beep as a reminder.).</size>";
         pauseNextExitText.text = $"Next exit: <b>{trialAttuale.nomeUscita}</b>"; 
 
         // Compila fisicamente i cartelli 3D in background
@@ -194,14 +365,8 @@ public class ExperimentManager : MonoBehaviour
         Debug.Log($"Iniziato Trial {currentTrialIndex + 1}");
         NascondiPMV();
         
-        if (veicoloGiocatore != null && puntoDiPartenzaSperimentale != null)
-        {
-            veicoloGiocatore.transform.position = puntoDiPartenzaSperimentale.position;
-            veicoloGiocatore.transform.rotation = puntoDiPartenzaSperimentale.rotation;
-            AzzeraFisicaAuto();
-        }
-
-        if (scriptControlloAuto != null) scriptControlloAuto.enabled = true;
+        PosizionaEVeicolo(puntoDiPartenzaSperimentale);
+        ImpostaVeicoloInPausa(false);
 
         // Attiva fisicamente il sistema di allarme velocità
         if (speedWarning != null) 
@@ -211,13 +376,14 @@ public class ExperimentManager : MonoBehaviour
         }
 
         // Avviamo la registrazione dei dati SOLO nei trial sperimentali
-        if (dataLogger != null) dataLogger.StartLogging();
+        if (dataLogger != null)
+            dataLogger.StartLogging(currentTrialIndex + 1);
     }
 
     // --- FUNZIONE DI FINE TRIAL UNIFICATA ---
     public void FineTrial()
     {
-        if (scriptControlloAuto != null) scriptControlloAuto.enabled = false;
+        ImpostaVeicoloInPausa(true);
 
         
         if (speedWarning != null) 
@@ -266,15 +432,41 @@ public class ExperimentManager : MonoBehaviour
         AvviaProssimoTrial(); 
     }
 
-    // --- METODI DI SUPPORTO ---
-    private void AzzeraFisicaAuto()
+    // --- METODI DI SUPPORTO VPP ---
+    private void PosizionaEVeicolo(Transform punto)
     {
-        Rigidbody rb = veicoloGiocatore.GetComponent<Rigidbody>();
+        if (veicoloGiocatore == null || punto == null)
+            return;
+
+        ImpostaVeicoloInPausa(true);
+
+        veicoloGiocatore.transform.SetPositionAndRotation(
+            punto.position,
+            punto.rotation);
+
+        Rigidbody rb = veicoloGiocatore.GetComponentInChildren<Rigidbody>();
         if (rb != null)
         {
             rb.linearVelocity = Vector3.zero;
             rb.angularVelocity = Vector3.zero;
+            rb.Sleep();
         }
+
+        ImpostaVeicoloInPausa(false);
+    }
+
+    private void ImpostaVeicoloInPausa(bool pausa)
+    {
+        if (vppVehicle != null)
+            vppVehicle.paused = pausa;
+    }
+
+    public bool IsPlayerVehicle(Collider other)
+    {
+        if (other == null || vppVehicle == null)
+            return false;
+
+        return other.GetComponentInParent<VPVehicleController>() == vppVehicle;
     }
 
     private IEnumerator PausaLungaGSS()
@@ -292,6 +484,7 @@ public class ExperimentManager : MonoBehaviour
 
     private void CompletaEsperimento()
     {
+        ImpostaVeicoloInPausa(true);
         currentState = ExperimentState.Finished;
         pauseScreenCanvas.SetActive(true);
         pauseInstructionsText.text = "Experiment complete.\nThank you for your participation.";

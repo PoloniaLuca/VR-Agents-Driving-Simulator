@@ -3,6 +3,7 @@ using UnityEngine.UI;
 using UnityEngine.Splines;
 using TMPro;
 using DrivingSim;
+using VehiclePhysics;
 
 /// <summary>
 /// Dashboard display for the player car.
@@ -20,8 +21,8 @@ public class DashboardSpeed : MonoBehaviour
     // ─────────────────────────────────────────────────────────────────────────
     //  Inspector
     // ─────────────────────────────────────────────────────────────────────────
-    [Header("Car")]
-    public CarController carController;
+    [Header("Car VPP")]
+    public VPVehicleToolkit vehicleToolkit;
 
     [Header("Speed display")]
     [Tooltip("If true, format shows 3 digits with leading zeros (e.g. 080).\n" +
@@ -60,6 +61,9 @@ public class DashboardSpeed : MonoBehaviour
     // ─────────────────────────────────────────────────────────────────────────
     void Start()
     {
+        if (vehicleToolkit == null)
+            vehicleToolkit = GetComponentInParent<VPVehicleToolkit>();
+
         speedText = GetComponent<TextMeshProUGUI>();
         if (speedText == null)
             speedText = GetComponentInChildren<TextMeshProUGUI>();
@@ -73,7 +77,7 @@ public class DashboardSpeed : MonoBehaviour
 
     void Update()
     {
-        if (carController == null) return;
+        if (vehicleToolkit == null) return;
 
         UpdateSpeed();
         UpdateProgress();
@@ -89,7 +93,9 @@ public class DashboardSpeed : MonoBehaviour
 
         // GetDisplaySpeedKmh() uses HighwaySpeedScale if present,
         // otherwise falls back to raw physics km/h.
-        float targetKmh = carController.GetDisplaySpeedKmh();
+        float targetKmh = HighwaySpeedScale.Instance != null
+            ? HighwaySpeedScale.Instance.PhysicsMsToDisplayKmh(vehicleToolkit.speed)
+            : vehicleToolkit.speedInKph;
         smoothedSpeedKmh = Mathf.Lerp(smoothedSpeedKmh, targetKmh,
                                        Time.deltaTime * smoothSpeed);
 
@@ -129,14 +135,14 @@ public class DashboardSpeed : MonoBehaviour
     /// </summary>
     private float EstimateSplineT()
     {
-        if (carController == null || roadSpline == null || splineLength <= 0f)
+        if (vehicleToolkit == null || roadSpline == null || splineLength <= 0f)
             return 0f;
 
         const int Samples  = 32;
         float     bestT    = 0f;
         float     bestDist = float.MaxValue;
         // Access the car position via its transform rather than Rigidbody
-        Vector3   carPos   = carController.transform.position;
+        Vector3   carPos   = vehicleToolkit.transform.position;
 
         for (int i = 0; i <= Samples; i++)
         {

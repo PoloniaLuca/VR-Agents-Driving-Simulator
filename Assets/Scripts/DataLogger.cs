@@ -1,20 +1,24 @@
 using System.Collections.Generic;
 using UnityEngine;
 using System.Linq;
-using DrivingSim; 
+using DrivingSim;
+using VehiclePhysics;
+using System.IO;
+using System.Text;
 
 public class DataLogger : MonoBehaviour
 {
-    [Header("Riferimenti Veicolo")]
-    public Rigidbody carRigidbody;
+    [Header("Riferimenti Veicolo VPP")]
+    [Tooltip("VPVehicleToolkit del veicolo del partecipante.")]
+    public VPVehicleToolkit vehicleToolkit;
     public Transform carTransform;
-    // (Più avanti aggiungeremo il riferimento allo script dei pedali per leggere Freno e Acceleratore)
-    public MonoBehaviour inputSource;
-    
-    private ICarInput carInput; // Interfaccia generica
 
-    [Header("Riferimenti per DataLogger")]
-    public CarController carController;
+    [Header("Participant / CSV")]
+    [SerializeField] private string participantId = "";
+    [SerializeField] private int participantGroup = 1;
+
+    private int currentTrialIndex = 0;
+    private string csvFilePath;
 
     [Header("Stato Finestre (Sola Lettura)")]
     public bool isLoggingEnabled = false;
@@ -58,8 +62,17 @@ public class DataLogger : MonoBehaviour
 
     void Start()
     {
-        carInput = inputSource as ICarInput;
-        if (carTransform != null) lastPosition = carTransform.position;
+        if (vehicleToolkit == null && carTransform != null)
+            vehicleToolkit = carTransform.GetComponentInParent<VPVehicleToolkit>();
+
+        if (vehicleToolkit == null)
+            Debug.LogError("[DataLogger] VPVehicleToolkit non assegnato/trovato.", this);
+
+        if (carTransform == null && vehicleToolkit != null)
+            carTransform = vehicleToolkit.transform;
+
+        if (carTransform != null)
+            lastPosition = carTransform.position;
         
         // IMPERATIVO: Forza il motore fisico di Unity a 60 Hz per rispettare il protocollo (1/60 = 0.016666)
         Time.fixedDeltaTime = 1f / 60f; 
@@ -68,10 +81,12 @@ public class DataLogger : MonoBehaviour
     void FixedUpdate()
     {
         // Il logger si spegne completamente se non è abilitato (es. durante la Pratica)
-        if (carRigidbody == null || !isLoggingEnabled) return;
-        
-        float currentSpeedMs = carRigidbody.linearVelocity.magnitude;
-        float currentSpeedKmH = currentSpeedMs * 3.6f;
+        if (vehicleToolkit == null || carTransform == null || !isLoggingEnabled) return;
+
+        float currentSpeedMs = vehicleToolkit.speed;
+        float currentSpeedKmH = HighwaySpeedScale.Instance != null
+            ? HighwaySpeedScale.Instance.PhysicsMsToDisplayKmh(currentSpeedMs)
+            : vehicleToolkit.speedInKph;
         float currentLateralPos = carTransform.position.x;
         float currentAcceleration = (currentSpeedMs - lastSpeedMs) / Time.fixedDeltaTime; // m/s^2
         float currentThrottle = GetThrottlePedal();
@@ -109,7 +124,7 @@ public class DataLogger : MonoBehaviour
                 if (totalTrialOdometer >= 1400f && !speedBaselineCompleted)
                 {
                     trialValidityError = true;
-                    Debug.LogError("BASELINE_NOT_REACHED: L'utente non ha stabilizzato la velocità tra 1.0 e 1.4 km.");
+                    Debug.Log("BASELINE_NOT_REACHED: L'utente non ha stabilizzato la velocità tra 1.0 e 1.4 km.");
                 }
             }
         }
@@ -230,15 +245,50 @@ public class DataLogger : MonoBehaviour
         Debug.Log($"DV8 Exit Compliance: {DV8_ExitCompliance}");
         Debug.Log("=======================");
 
+        // IMPORTANT: persist this trial before resetting the logger.
+        WriteTrialToCsv();
+
         StopLogging();
     }
 
      // --- METODI PER CONTROLLARE IL LOGGER DALL'ESTERNO ---
     public void StartLogging()
     {
+        StartLogging(0);
+    }
+
+    public void StartLogging(int trialIndex)
+    {
         ResetLogger();
+
+        currentTrialIndex = trialIndex;
+
+        if (string.IsNullOrWhiteSpace(participantId))
+        {
+            Debug.LogError(
+                "[DataLogger] Cannot start logging: participant ID is empty."
+            );
+            return;
+        }
+
+        if (participantGroup < 1 || participantGroup > 6)
+        {
+            Debug.LogError(
+                "[DataLogger] Cannot start logging: invalid participant group."
+            );
+            return;
+        }
+
+        csvFilePath = BuildCsvFilePath();
+
+        EnsureCsvFileExists();
+
         isLoggingEnabled = true;
-        Debug.Log("DataLogger: Registrazione DATI INIZIATA.");
+
+        Debug.Log(
+            $"DataLogger: Registrazione DATI INIZIATA. Trial {currentTrialIndex}"
+        );
+        Debug.Log($"DataLogger: CSV path = {csvFilePath}");
     }
 
     public void StopLogging()
@@ -273,8 +323,15 @@ public class DataLogger : MonoBehaviour
     }
 
     // --- MATEMATICA E INPUT ---
-    private float GetThrottlePedal() { return carInput != null ? carInput.Throttle : 0f; }
-    private float GetBrakePedal() { return carInput != null ? carInput.Brake : 0f; }
+    private float GetThrottlePedal()
+    => vehicleToolkit != null && vehicleToolkit.vehicle != null
+        ? Mathf.Clamp01(VPVehicleToolkit.GetThrottle(vehicleToolkit.vehicle))
+        : 0f;
+
+    private float GetBrakePedal()
+        => vehicleToolkit != null && vehicleToolkit.vehicle != null
+            ? Mathf.Clamp01(VPVehicleToolkit.GetBrake(vehicleToolkit.vehicle))
+            : 0f;
 
 
     // ------ TESTING ------
@@ -294,6 +351,127 @@ public class DataLogger : MonoBehaviour
             StampaDatiInTempoReale();
             debugLogTimer = 0f; // Resetta il timer
         }
+    }
+
+    public void SetParticipantInfo(string id, int group)
+    {
+        participantId = id.Trim();
+        participantGroup = group;
+
+        csvFilePath = BuildCsvFilePath();
+
+        Debug.Log($"DataLogger: Participant={participantId}, Group={participantGroup}");
+        Debug.Log($"DataLogger: CSV={csvFilePath}");
+    }
+
+    private string BuildCsvFilePath()
+    {
+        string safeParticipantId = MakeSafeFileName(participantId);
+
+        return Path.Combine(
+            Application.persistentDataPath,
+            $"car_simulator_{safeParticipantId}_{participantGroup}.csv"
+        );
+    }
+
+    private string MakeSafeFileName(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return "UNKNOWN";
+
+        StringBuilder result = new StringBuilder(value.Trim());
+
+        foreach (char invalidChar in Path.GetInvalidFileNameChars())
+            result.Replace(invalidChar, '_');
+
+        return result.ToString();
+    }
+
+    private void EnsureCsvFileExists()
+    {
+        if (File.Exists(csvFilePath))
+            return;
+
+        string header =
+            "ParticipantID,Group,TrialIndex," +
+            "DV1_BrakingLatency,DV2_MinSpeed,DV3_DurationBelowBaseline," +
+            "DV4_SDLP_Change,DV5_BrakeEngagement,DV6_SpeedRecoveryTime," +
+            "DV7_ThrottleReduction,DV8_ExitCompliance";
+
+        using (FileStream stream = new FileStream(
+            csvFilePath,
+            FileMode.CreateNew,
+            FileAccess.Write,
+            FileShare.Read))
+        using (StreamWriter writer = new StreamWriter(stream))
+        {
+            writer.WriteLine(header);
+            writer.Flush();
+            stream.Flush(true);
+        }
+    }
+
+    private void WriteTrialToCsv()
+    {
+        if (string.IsNullOrWhiteSpace(csvFilePath))
+            csvFilePath = BuildCsvFilePath();
+
+        string row = string.Join(",",
+            CsvEscape(participantId),
+            participantGroup.ToString(),
+            currentTrialIndex.ToString(),
+            DV1_BrakingLatency.ToString("F6"),
+            DV2_MinSpeed.ToString("F6"),
+            DV3_DurationBelowBaseline.ToString("F6"),
+            DV4_SDLP_Change.ToString("F6"),
+            DV5_BrakeEngagement.ToString(),
+            DV6_SpeedRecoveryTime.ToString("F6"),
+            DV7_ThrottleReduction.ToString("F6"),
+            DV8_ExitCompliance.ToString()
+        );
+
+        try
+        {
+            using (FileStream stream = new FileStream(
+                csvFilePath,
+                FileMode.Append,
+                FileAccess.Write,
+                FileShare.Read))
+            using (StreamWriter writer = new StreamWriter(stream))
+            {
+                writer.WriteLine(row);
+
+                // Flush StreamWriter and force the FileStream to flush.
+                writer.Flush();
+                stream.Flush(true);
+            }
+
+            Debug.Log(
+                $"DataLogger: Trial {currentTrialIndex} salvato in CSV."
+            );
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogError(
+                $"[DataLogger] Errore durante il salvataggio CSV: {ex}"
+            );
+        }
+    }
+
+    private string CsvEscape(string value)
+    {
+        if (value == null)
+            return "";
+
+        if (value.Contains(",") ||
+            value.Contains("\"") ||
+            value.Contains("\n") ||
+            value.Contains("\r"))
+        {
+            return "\"" + value.Replace("\"", "\"\"") + "\"";
+        }
+
+        return value;
     }
 
     private void StampaDatiInTempoReale()

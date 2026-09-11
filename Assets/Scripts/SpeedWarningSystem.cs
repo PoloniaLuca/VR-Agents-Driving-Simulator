@@ -1,10 +1,12 @@
 using UnityEngine;
+using VehiclePhysics;
+using DrivingSim;
 
 public class SpeedWarningSystem : MonoBehaviour
 {
-    [Header("Riferimenti")]
-    [Tooltip("Il Rigidbody dell'auto per leggere la velocità")]
-    public Rigidbody carRigidbody;
+    [Header("Riferimenti VPP")]
+    [Tooltip("VPVehicleToolkit del veicolo del partecipante.")]
+    public VPVehicleToolkit vehicleToolkit;
     [Tooltip("L'AudioSource che contiene il suono del Bip neutro")]
     public AudioSource beepAudioSource;
 
@@ -23,12 +25,14 @@ public class SpeedWarningSystem : MonoBehaviour
 
     void Update()
     {
-        if (!isSystemEnabled || carRigidbody == null || beepAudioSource == null) return;
+        if (!isSystemEnabled || vehicleToolkit == null || beepAudioSource == null) return;
 
         // if (ExperimentManager.Instance.currentState != ExperimentState.Driving) return;
 
-        // Calcoliamo la velocità in km/h
-        float currentSpeedKmH = carRigidbody.linearVelocity.magnitude * 3.6f;
+        // Velocità VPP in m/s, convertita nella velocità display/reale del simulatore.
+        float currentSpeedKmH = HighwaySpeedScale.Instance != null
+            ? HighwaySpeedScale.Instance.PhysicsMsToDisplayKmh(vehicleToolkit.speed)
+            : vehicleToolkit.speedInKph;
 
          if (currentSpeedKmH < 1f) 
         {
@@ -54,6 +58,15 @@ public class SpeedWarningSystem : MonoBehaviour
             isArmed = false; 
             Debug.Log("SpeedWarning: Velocità sotto i 60 km/h! BIP suonato.");
         }
+    }
+
+    private void Awake()
+    {
+        if (vehicleToolkit == null)
+            vehicleToolkit = GetComponentInParent<VPVehicleToolkit>();
+
+        if (vehicleToolkit == null)
+            Debug.LogError("[SpeedWarningSystem] VPVehicleToolkit non assegnato/trovato.", this);
     }
 
     // Questa funzione può essere chiamata dall'ExperimentManager all'inizio di ogni trial

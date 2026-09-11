@@ -1,4 +1,5 @@
 using UnityEngine;
+using VehiclePhysics;
 
 [RequireComponent(typeof(BoxCollider))]
 public class HighwayTrigger : MonoBehaviour
@@ -19,8 +20,11 @@ public class HighwayTrigger : MonoBehaviour
 
     private void OnTriggerEnter(Collider other)
     {
-        if (other.CompareTag("Player"))
-        {
+        // Reagisce solo al VPVehicleController del partecipante.
+        // I veicoli AI (CarController) non possono attivare i trigger.
+        if (manager == null || !manager.IsPlayerVehicle(other))
+            return;
+
             switch (type)
             {
                 case TriggerType.SDLP:
@@ -55,4 +59,3 @@ public class HighwayTrigger : MonoBehaviour
             }
         }
     }
-}
