@@ -62,6 +62,12 @@ public class ExperimentManager : MonoBehaviour
     public TMP_Dropdown participantGroupDropdown;
     public Button participantStartButton;
     public TextMeshProUGUI participantFeedbackText;
+    [Tooltip("Testo informativo/consenso mostrato nella schermata iniziale.")]
+    public TextMeshProUGUI participantInfoText;
+    [Tooltip("Toggle che il partecipante deve spuntare per accettare le condizioni prima di poter avviare la simulazione.")]
+    public Toggle participantAgreeToggle;
+    [Tooltip("Messaggio mostrato se si prova ad avviare senza aver spuntato il toggle.")]
+    public string messaggioToggleMancante = "Devi accettare le condizioni per continuare.";
 
     [Header("Riferimenti Cartelli 3D (Nella Scena)")]
     public GameObject modelloFisicoPMV;
@@ -82,11 +88,106 @@ public class ExperimentManager : MonoBehaviour
 
     public SpeedWarningSystem speedWarning;
 
+    [Header("Pausa Di Emergenza (Ricercatore)")]
+    [Tooltip("Tasto che mette in pausa/riprende l'intera simulazione (fisica, AI, timer e logging).")]
+    public KeyCode emergencyPauseKey = KeyCode.P;
+    [Tooltip("Pannello opzionale mostrato mentre la simulazione è in pausa di emergenza.")]
+    public GameObject emergencyPausePanel;
+    [Tooltip("Testo opzionale mostrato nel pannello di pausa di emergenza.")]
+    public TextMeshProUGUI emergencyPauseText;
+
+    private bool isEmergencyPaused = false;
+    private float timeScalePrimaDellaPausa = 1f;
+
+    public bool IsEmergencyPaused => isEmergencyPaused;
+
     public VPVehicleController PlayerVehicle => vppVehicle;
 
     private void Awake()
     {
         CachePlayerVehicle();
+    }
+
+    private void Update()
+    {
+        if (Input.GetKeyDown(emergencyPauseKey))
+        {
+            ToggleEmergencyPause();
+        }
+    }
+
+    private void OnDestroy()
+    {
+        // Safety net: never leave the editor/game stuck at timeScale 0
+        // if this object is destroyed while paused.
+        if (isEmergencyPaused)
+            Time.timeScale = timeScalePrimaDellaPausa > 0f ? timeScalePrimaDellaPausa : 1f;
+    }
+
+    // --- PAUSA DI EMERGENZA (attivabile in qualsiasi momento dal ricercatore) ---
+
+    public void ToggleEmergencyPause()
+    {
+        if(currentState != ExperimentState.Driving ||
+            currentState != ExperimentState.PracticeDriving)
+            return;
+        if (isEmergencyPaused)
+            RiprendiSimulazione();
+        else
+            MettiInPausaSimulazione();
+    }
+
+    public void MettiInPausaSimulazione()
+    {
+        if (isEmergencyPaused)
+            return;
+
+        isEmergencyPaused = true;
+        timeScalePrimaDellaPausa = Time.timeScale;
+
+        // Freezing timeScale stops physics (vehicle, AI traffic), any
+        // coroutine timers driven by Time.deltaTime, and any Update/FixedUpdate
+        // logic in the DataLogger that relies on scaled time.
+        Time.timeScale = 0f;
+
+        // Belt-and-braces: explicitly pause the player vehicle too, in case
+        // it also reacts to real/unscaled input elsewhere.
+        ImpostaVeicoloInPausa(true);
+
+        if (emergencyPausePanel != null)
+            emergencyPausePanel.SetActive(true);
+
+        if (emergencyPauseText != null)
+            emergencyPauseText.text = $"SIMULATION PAUSED\nPress '{emergencyPauseKey}' to resume";
+
+        Debug.Log($"[ExperimentManager] Simulazione messa in PAUSA manualmente (tasto {emergencyPauseKey}).");
+
+        // Confirmed: DataLogger drives all its per-frame tracking off
+        // Time.fixedDeltaTime/Time.deltaTime (FixedUpdate + Update), so
+        // Time.timeScale = 0 already freezes it completely — no explicit
+        // Pause/Resume call needed on dataLogger.
+    }
+
+    public void RiprendiSimulazione()
+    {
+        if (!isEmergencyPaused)
+            return;
+
+        isEmergencyPaused = false;
+        Time.timeScale = timeScalePrimaDellaPausa > 0f ? timeScalePrimaDellaPausa : 1f;
+
+        // Only let the vehicle drive again if we were actually in a driving
+        // phase; otherwise leave it paused as the normal flow expects.
+        bool stavaGuidando =
+            currentState == ExperimentState.Driving ||
+            currentState == ExperimentState.PracticeDriving;
+
+        ImpostaVeicoloInPausa(!stavaGuidando);
+
+        if (emergencyPausePanel != null)
+            emergencyPausePanel.SetActive(false);
+
+        Debug.Log("[ExperimentManager] Simulazione RIPRESA.");
     }
 
     private void CachePlayerVehicle()
@@ -135,6 +236,17 @@ public class ExperimentManager : MonoBehaviour
             );
         }
 
+        if (participantAgreeToggle != null)
+        {
+            participantAgreeToggle.onValueChanged.RemoveListener(
+                OnAgreeToggleChanged
+            );
+
+            participantAgreeToggle.onValueChanged.AddListener(
+                OnAgreeToggleChanged
+            );
+        }
+
         if (pauseScreenCanvas != null)
             pauseScreenCanvas.SetActive(true);
 
@@ -160,6 +272,41 @@ public class ExperimentManager : MonoBehaviour
 
         if (participantFeedbackText != null)
             participantFeedbackText.text = "";
+
+        // Reset consent toggle every time the panel is (re)shown, and keep
+        // the Start button locked until the participant checks it again.
+        if (participantAgreeToggle != null)
+        {
+            participantAgreeToggle.isOn = false;
+        }
+
+        AggiornaStatoBottoneStart();
+    }
+
+    /// <summary>
+    /// Chiamato quando il partecipante spunta/de-spunta il toggle di consenso.
+    /// Abilita il bottone Start solo se il toggle è flaggato.
+    /// </summary>
+    private void OnAgreeToggleChanged(bool isOn)
+    {
+        AggiornaStatoBottoneStart();
+
+        // Clear any previous "please check the box" warning as soon as the
+        // participant ticks it.
+        if (isOn && participantFeedbackText != null)
+            participantFeedbackText.text = "";
+    }
+
+    private void AggiornaStatoBottoneStart()
+    {
+        if (participantStartButton == null)
+            return;
+
+        // If no toggle is assigned, don't block starting (keeps backward
+        // compatibility with scenes that don't use the consent toggle).
+        bool toggleOk = participantAgreeToggle == null || participantAgreeToggle.isOn;
+
+        participantStartButton.interactable = toggleOk;
     }
 
     private void MostraTestiPausa()
@@ -176,6 +323,14 @@ public class ExperimentManager : MonoBehaviour
 
     public void ConfermaPartecipanteEAvvia()
     {
+        // Safety net: never start if the consent toggle exists and is not checked,
+        // even if this method gets called through some other path than the button.
+        if (participantAgreeToggle != null && !participantAgreeToggle.isOn)
+        {
+            MostraErroreInput(messaggioToggleMancante);
+            return;
+        }
+
         string id = participantIdInput != null
             ? participantIdInput.text.Trim()
             : participantId.Trim();
@@ -200,15 +355,6 @@ public class ExperimentManager : MonoBehaviour
         if (gruppo < 1 || gruppo > 6)
         {
             MostraErroreInput("Seleziona un gruppo da 1 a 6.");
-            return;
-        }
-
-        // Current source contains sequences only for groups 1-4.
-        if (gruppo > 4)
-        {
-            MostraErroreInput(
-                "I gruppi 5-6 non hanno ancora una sequenza definita."
-            );
             return;
         }
 
@@ -501,7 +647,6 @@ public class ExperimentManager : MonoBehaviour
         {
             case 1:
                 // GRUPPO 1
-                // Condizioni: Set A(ATT/1), Set B(ATT/3), Set C(RAL/1), Set D(RAL/3)
                 trialSequence.Add(NuovoStimolo(80, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "TRANSITO", "DIFFICILE", "COMASINA"));
                 trialSequence.Add(NuovoStimolo(95, TipoParola.CONTROLLO, ConfigurazioneVMB.ABC, "TRAFFICO", "IRREGOLARE", "BICOCCA")); // Controllo fisso
                 trialSequence.Add(NuovoStimolo(53, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "VIABILITA", "DIFFICOLTOSA", "CORMANO"));
@@ -578,6 +723,50 @@ public class ExperimentManager : MonoBehaviour
                 trialSequence.Add(NuovoStimolo(94, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "MATERIALI", "DISPERSI", "BICOCCA"));
                 trialSequence.Add(NuovoStimolo(30, TipoParola.CONTROLLO, ConfigurazioneVMB.ABC, "CODE INTENSE", "IN USCITA", "CORMANO")); // Controllo fisso
                 trialSequence.Add(NuovoStimolo(63, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "GUARDRAIL", "DANNEGGIATO", "SESTO"));
+                break;
+
+            case 5:
+                // GRUPPO 5 (Shift delle condizioni)
+                trialSequence.Add(NuovoStimolo(95, TipoParola.CONTROLLO, ConfigurazioneVMB.ABC, "TRAFFICO", "IRREGOLARE", "COMASINA"));
+                trialSequence.Add(NuovoStimolo(22, TipoParola.CONTROLLO, ConfigurazioneVMB.ABC, "SEGNALETICA", "NON VALIDA", "BICOCCA"));
+                trialSequence.Add(NuovoStimolo(4, TipoParola.CONTROLLO, ConfigurazioneVMB.ABC, "TRASPORTO", "ECCEZIONALE", "CORMANO"));
+                trialSequence.Add(NuovoStimolo(30, TipoParola.CONTROLLO, ConfigurazioneVMB.BCA, "CODE INTENSE", "IN USCITA", "SESTO"));
+                trialSequence.Add(NuovoStimolo(1001, TipoParola.CONTROLLO, ConfigurazioneVMB.BCA, "CONTESTO1", "COMPLEMENTO1", "SEGRATE")); // placeholder
+                trialSequence.Add(NuovoStimolo(1002, TipoParola.CONTROLLO, ConfigurazioneVMB.BCA, "CONTESTO2", "COMPLEMENTO2", "GOBBA"));   // placeholder
+                trialSequence.Add(NuovoStimolo(80, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "TRANSITO", "DIFFICILE", "COMASINA"));
+                trialSequence.Add(NuovoStimolo(27, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "RAFFICHE", "DI VENTO", "BICOCCA"));
+                trialSequence.Add(NuovoStimolo(94, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "MATERIALI", "DISPERSI", "CORMANO"));
+                trialSequence.Add(NuovoStimolo(86, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "CODE LUNGHE", "IN AUMENTO", "SESTO"));
+                trialSequence.Add(NuovoStimolo(32, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "GHIACCIO", "A TRATTI", "SEGRATE"));
+                trialSequence.Add(NuovoStimolo(74, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "OSTACOLO", "IN STRADA", "GOBBA"));
+                trialSequence.Add(NuovoStimolo(53, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "VIABILITA", "DIFFICOLTOSA", "COMASINA"));
+                trialSequence.Add(NuovoStimolo(101, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "PRESENZA", "DI DETRITI", "BICOCCA"));
+                trialSequence.Add(NuovoStimolo(63, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "GUARDRAIL", "DANNEGGIATO", "CORMANO"));
+                trialSequence.Add(NuovoStimolo(14, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "AUTOMEZZO", "IN AVARIA", "SESTO"));
+                trialSequence.Add(NuovoStimolo(20, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "CANTIERE", "STRADALE", "SEGRATE"));
+                trialSequence.Add(NuovoStimolo(33, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "RIDUZIONE", "DELLE CORSIE", "GOBBA"));
+                break;
+
+            case 6:
+                // GRUPPO 6
+                trialSequence.Add(NuovoStimolo(30, TipoParola.CONTROLLO, ConfigurazioneVMB.BCA, "CODE INTENSE", "IN USCITA", "COMASINA"));
+                trialSequence.Add(NuovoStimolo(1001, TipoParola.CONTROLLO, ConfigurazioneVMB.BCA, "CONTESTO1", "COMPLEMENTO1", "BICOCCA")); // placeholder
+                trialSequence.Add(NuovoStimolo(1002, TipoParola.CONTROLLO, ConfigurazioneVMB.BCA, "CONTESTO2", "COMPLEMENTO2", "CORMANO"));   // placeholder
+                trialSequence.Add(NuovoStimolo(80, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "TRANSITO", "DIFFICILE", "SESTO"));
+                trialSequence.Add(NuovoStimolo(27, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "RAFFICHE", "DI VENTO", "SEGRATE"));
+                trialSequence.Add(NuovoStimolo(94, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "MATERIALI", "DISPERSI", "GOBBA"));
+                trialSequence.Add(NuovoStimolo(86, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "CODE LUNGHE", "IN AUMENTO", "COMASINA"));
+                trialSequence.Add(NuovoStimolo(32, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "GHIACCIO", "A TRATTI", "BICOCCA"));
+                trialSequence.Add(NuovoStimolo(74, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "OSTACOLO", "IN STRADA", "CORMANO"));
+                trialSequence.Add(NuovoStimolo(53, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "VIABILITA", "DIFFICOLTOSA", "SESTO"));
+                trialSequence.Add(NuovoStimolo(101, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "PRESENZA", "DI DETRITI", "SEGRATE"));
+                trialSequence.Add(NuovoStimolo(63, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "GUARDRAIL", "DANNEGGIATO", "GOBBA"));
+                trialSequence.Add(NuovoStimolo(14, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "AUTOMEZZO", "IN AVARIA", "COMASINA"));
+                trialSequence.Add(NuovoStimolo(20, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "CANTIERE", "STRADALE", "BICOCCA"));
+                trialSequence.Add(NuovoStimolo(33, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "RIDUZIONE", "DELLE CORSIE", "CORMANO"));
+                trialSequence.Add(NuovoStimolo(95, TipoParola.CONTROLLO, ConfigurazioneVMB.ABC, "TRAFFICO", "IRREGOLARE", "SESTO"));
+                trialSequence.Add(NuovoStimolo(22, TipoParola.CONTROLLO, ConfigurazioneVMB.ABC, "SEGNALETICA", "NON VALIDA", "SEGRATE"));
+                trialSequence.Add(NuovoStimolo(4, TipoParola.CONTROLLO, ConfigurazioneVMB.ABC, "TRASPORTO", "ECCEZIONALE", "GOBBA"));
                 break;
         }
         
