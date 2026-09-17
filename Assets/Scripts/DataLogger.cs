@@ -200,6 +200,8 @@ public class DataLogger : MonoBehaviour
 
         lastPosition = carTransform.position;
         lastSpeedMs = currentSpeedMs;
+
+        WriteTrialToCsv();
     }
 
     // --- METODI DEI TRIGGER ---

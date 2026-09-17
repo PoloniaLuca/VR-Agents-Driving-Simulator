@@ -531,34 +531,42 @@ public class ExperimentManager : MonoBehaviour
     {
         ImpostaVeicoloInPausa(true);
 
-        
         if (speedWarning != null) 
         {
-            speedWarning.isSystemEnabled = false; // SPEGNI QUI
+            speedWarning.isSystemEnabled = false;
             speedWarning.ResetWarningSystem();
         }
 
         if (currentState == ExperimentState.PracticeDriving)
         {
             Debug.Log("Terminato Trial di Familiarizzazione. Inizio sessione sperimentale.");
-            StartCoroutine(SchermataFinePratica()); //  Avvia la schermata di attesa
+            StartCoroutine(SchermataFinePratica());
         }
         else if (currentState == ExperimentState.Driving)
         {
             Debug.Log($"Terminato Trial {currentTrialIndex + 1}");
 
-            // Assicuriamoci di fermare il logger alla fine del trial
             if (dataLogger != null) dataLogger.StopLogging();
 
             currentTrialIndex++;
             AvviaProssimoTrial();
         }
 
-        foreach(var spawner in aiSpawners) {
-            if(spawner != null) spawner.StopAndClearTraffic();
+        // Defer traffic/environment teardown to the next frame,
+        // since we're still inside a physics trigger callback here.
+        StartCoroutine(FineTrialDeferredCleanup());
+    }
+
+    private IEnumerator FineTrialDeferredCleanup()
+    {
+        yield return null; // wait until the current physics callback has finished
+
+        foreach (var spawner in aiSpawners)
+        {
+            if (spawner != null) spawner.StopAndClearTraffic();
         }
-    
-        if(ambienteSperimentale != null) ambienteSperimentale.SetActive(false);
+
+        if (ambienteSperimentale != null) ambienteSperimentale.SetActive(false);
     }
 
     private IEnumerator SchermataFinePratica()
