@@ -248,6 +248,8 @@ public class DataLogger : MonoBehaviour
         Debug.Log("=======================");
 
         // IMPORTANT: persist this trial before resetting the logger.
+        
+        
         WriteTrialToCsv();
 
         StopLogging();
@@ -312,6 +314,7 @@ public class DataLogger : MonoBehaviour
         DV4_SDLP_Change = 0f; DV5_BrakeEngagement = 0; DV6_SpeedRecoveryTime = -1f; DV7_ThrottleReduction = 0f;
         totalTrialOdometer = 0f;     // Fondamentale resettare l'odometro
         trialValidityError = false;  // Resetta lo stato di errore
+        lastPosition = carTransform.position;
     }
 
     // --- MATEMATICA E INPUT ---
@@ -447,10 +450,6 @@ public class DataLogger : MonoBehaviour
                 writer.Flush();
                 stream.Flush(true);
             }
-
-            Debug.Log(
-                $"DataLogger: Trial {currentTrialIndex} salvato in CSV."
-            );
         }
         catch (System.Exception ex)
         {
@@ -482,6 +481,15 @@ public class DataLogger : MonoBehaviour
         float sdPreLive = CalculateStandardDeviation(sdlpBaselineData);
         float sdPostLive = CalculateStandardDeviation(sdlpPostGantryData);
         float sdlpChangeLive = sdPostLive - sdPreLive;
+
+        if (speedAbove75Timer >= 5f)
+        {
+            Debug.Log($"DataLogger: Speed Baseline acquisita a {totalTrialOdometer:F0} metri.");
+        }
+
+        
+        Debug.Log($"{speedAbove75Timer}");
+        Debug.Log($"DataLogger: Speed Baseline acquisita a {totalTrialOdometer:F0} metri.");
         
         // Creiamo una stringa compatta per non intasare troppo la console
         string stato = $"[LIVE 5s] Odometro Post-Gantry: {postGantryOdometer:F1}m | ";

@@ -4,11 +4,13 @@ using UnityEngine;
 using TMPro;
 using VehiclePhysics;
 using UnityEngine.UI;
+using UnityEngine.Splines;
+using Unity.Mathematics;
 
 // --- STRUTTURE DATI ---
 public enum ExperimentState { NotStarted, PracticeInstruction, PracticeDriving, InstructionScreen, Driving, MidSessionBreak, Finished }
 public enum ConfigurazioneVMB { ABC, BCA } // ABC = Parola su Riga 1, BCA = Parola su Riga 3
-public enum TipoParola { ATTENZIONE, RALLENTARE, CONTROLLO, TANG_NORD }
+public enum TipoParola { ATTENZIONE, RALLENTARE, TANG_NORD }
 
 [System.Serializable]
 public class StimoloVMB
@@ -30,7 +32,7 @@ public class ExperimentManager : MonoBehaviour
     [Tooltip("Gruppo del partecipante.")]
     [Range(1, 6)]
     public int gruppoPartecipante = 1;
-    
+
     [Header("Stato Corrente (Sola Lettura)")]
     public ExperimentState currentState = ExperimentState.NotStarted;
     public int currentTrialIndex = 0;
@@ -39,10 +41,24 @@ public class ExperimentManager : MonoBehaviour
     [Header("VPP Veicolo Giocatore")]
     [Tooltip("Root GameObject del veicolo VPP del partecipante.")]
     public GameObject veicoloGiocatore;
-    [Tooltip("Punto in cui appare l'auto per il trial di FAMILIARIZZAZIONE")]
-    public Transform puntoDiPartenzaPratica;
-    [Tooltip("Punto in cui appare l'auto per i TRIAL SPERIMENTALI (1-16)")]
-    public Transform puntoDiPartenzaSperimentale;
+
+    [Header("Punti di Partenza su Spline (500 m dall'inizio)")]
+    [Tooltip("SplineContainer della pista di PRATICA.")]
+    public SplineContainer splinePratica;
+    [Tooltip("Indice della spline dentro il container di pratica.")]
+    public int splineIndexPratica = 0;
+    [Tooltip("Offset laterale [m] dalla center-line per la pratica.\nPositivo = sinistra del senso di marcia, negativo = destra.")]
+    public float laneOffsetPratica = 12f;
+
+    [Tooltip("SplineContainer della pista SPERIMENTALE.")]
+    public SplineContainer splineSperimentale;
+    [Tooltip("Indice della spline dentro il container sperimentale.")]
+    public int splineIndexSperimentale = 0;
+    [Tooltip("Offset laterale [m] dalla center-line per lo sperimentale.\nPositivo = sinistra del senso di marcia, negativo = destra.")]
+    public float laneOffsetSperimentale = 12f;
+
+    [Tooltip("Distanza [m] dall'inizio della spline in cui posizionare il veicolo.")]
+    public float distanzaDiPartenza = 500f;
 
     private VPVehicleController vppVehicle;
 
@@ -51,7 +67,7 @@ public class ExperimentManager : MonoBehaviour
     public DataLogger dataLogger;
 
     [Header("Riferimenti UI 2D (Schermo Pausa)")]
-    public GameObject pauseScreenCanvas; 
+    public GameObject pauseScreenCanvas;
     public TextMeshProUGUI pauseInstructionsText;
     public TextMeshProUGUI pauseNextExitText;
     public TextMeshProUGUI pauseTimerText;
@@ -76,7 +92,6 @@ public class ExperimentManager : MonoBehaviour
     public TextMeshProUGUI testoPMV_Riga3;
     public TextMeshProUGUI testoCartelloVerde_3km;
     public TextMeshProUGUI testoCartelloBianco_4_0km;
-
 
     [Header("Ottimizzazione Performance")]
     public GameObject ambientePratica;      // Trascina qui il contenitore Pratica
@@ -128,7 +143,7 @@ public class ExperimentManager : MonoBehaviour
 
     public void ToggleEmergencyPause()
     {
-        if(currentState != ExperimentState.Driving ||
+        if (currentState != ExperimentState.Driving &&
             currentState != ExperimentState.PracticeDriving)
             return;
         if (isEmergencyPaused)
@@ -205,8 +220,6 @@ public class ExperimentManager : MonoBehaviour
 
     void Start()
     {
-        NascondiPMV();
-
         // Keep the vehicle stopped until participant information is confirmed.
         ImpostaVeicoloInPausa(true);
 
@@ -394,22 +407,22 @@ public class ExperimentManager : MonoBehaviour
 
         Debug.LogWarning("[ExperimentManager] " + messaggio);
     }
-        
+
     // --- FASE DI FAMILIARIZZAZIONE (TRIAL 0) ---
     private IEnumerator FasePraticaIstruzioni()
     {
         currentState = ExperimentState.PracticeInstruction;
-        
+
         pauseScreenCanvas.SetActive(true);
         MostraTestiPausa();
 
         pauseInstructionsText.text =
             "PRACTICE TRIAL\nDrive in the right lane. Maintain ~80 km/h.\nTake the exit when it appears.";
-        
-        // Puoi mettere il nome dell'uscita che hai scritto fisicamente nei cartelli della pratica
-        pauseNextExitText.text = "Next exit: <b>MONZA</b>"; 
 
-        float timer = 30f; 
+        // Puoi mettere il nome dell'uscita che hai scritto fisicamente nei cartelli della pratica
+        pauseNextExitText.text = "Next exit: <b>MONZA</b>";
+
+        float timer = 1f;
         while (timer > 0)
         {
             pauseTimerText.text = $"Starting practice in: {Mathf.Ceil(timer)}s";
@@ -424,25 +437,32 @@ public class ExperimentManager : MonoBehaviour
     private void IniziaGuidaPratica()
     {
         currentState = ExperimentState.PracticeDriving;
-        
-        // --- OTTIMIZZAZIONE ---
-        if(ambientePratica != null) ambientePratica.SetActive(true);
-        if(ambienteSperimentale != null) ambienteSperimentale.SetActive(false); // Spegne AI e autostrada lunga
 
-        
+        // --- OTTIMIZZAZIONE ---
+        if (ambientePratica != null) ambientePratica.SetActive(true);
+        if (ambienteSperimentale != null) ambienteSperimentale.SetActive(false); // Spegne AI e autostrada lunga
+
         // Spegniamo e puliamo tutti gli spawner per sicurezza
-        foreach(var spawner in aiSpawners) {
-            if(spawner != null) spawner.StopAndClearTraffic();
+        foreach (var spawner in aiSpawners)
+        {
+            if (spawner != null) spawner.StopAndClearTraffic();
         }
-        
+
         if (speedWarning != null) speedWarning.ResetWarningSystem();
         Debug.Log("Iniziato Trial di Familiarizzazione");
 
-        PosizionaEVeicolo(puntoDiPartenzaPratica);
+        // Posiziona il veicolo 500m lungo la spline di pratica, offsettato lateralmente
+        GetPoseOnSpline(
+            splinePratica,
+            splineIndexPratica,
+            distanzaDiPartenza,
+            laneOffsetPratica,
+            out Vector3 pos,
+            out Quaternion rot);
+
+        PosizionaEVeicolo(pos, rot);
         ImpostaVeicoloInPausa(false);
     }
-
-    
 
     // --- MACCHINA A STATI E FLUSSO ---
     public void AvviaProssimoTrial()
@@ -474,13 +494,13 @@ public class ExperimentManager : MonoBehaviour
 
         pauseInstructionsText.text =
             "Drive in the right lane. Maintain ~80 km/h.\nTake the exit when it appears.\n<size=80%>(If your speed drops well below normal highway speed, you will hear a short beep as a reminder.).</size>";
-        pauseNextExitText.text = $"Next exit: <b>{trialAttuale.nomeUscita}</b>"; 
+        pauseNextExitText.text = $"Next exit: <b>{trialAttuale.nomeUscita}</b>";
 
         // Compila fisicamente i cartelli 3D in background
         ApplicaStimoloAiCartelli(trialAttuale);
 
         // Timer di 30 secondi
-        float timer = 30f;
+        float timer = 1f;
         while (timer > 0)
         {
             pauseTimerText.text = $"Starting in: {Mathf.Ceil(timer)}s";
@@ -495,27 +515,32 @@ public class ExperimentManager : MonoBehaviour
     private void IniziaGuidaSperimentale()
     {
         currentState = ExperimentState.Driving;
-        
-        // --- OTTIMIZZAZIONE ---
-        if(ambientePratica != null) ambientePratica.SetActive(false); // Spegne la strada di prova
-        if(ambienteSperimentale != null) ambienteSperimentale.SetActive(true); // Accende tutto il sistema complesso
 
-        
-        foreach(var spawner in aiSpawners) {
-            if(spawner != null) spawner.StartTraffic();
+        // --- OTTIMIZZAZIONE ---
+        if (ambientePratica != null) ambientePratica.SetActive(false); // Spegne la strada di prova
+        if (ambienteSperimentale != null) ambienteSperimentale.SetActive(true); // Accende tutto il sistema complesso
+
+        foreach (var spawner in aiSpawners)
+        {
+            if (spawner != null) spawner.StartTraffic();
         }
 
-        
-        // if(aiSpawnManager != null) aiSpawnManager.StartTraffic(); // Fa nascere le macchine AI
-        
         Debug.Log($"Iniziato Trial {currentTrialIndex + 1}");
-        NascondiPMV();
-        
-        PosizionaEVeicolo(puntoDiPartenzaSperimentale);
+
+        // Posiziona il veicolo 500m lungo la spline sperimentale, offsettato lateralmente
+        GetPoseOnSpline(
+            splineSperimentale,
+            splineIndexSperimentale,
+            distanzaDiPartenza,
+            laneOffsetSperimentale,
+            out Vector3 pos,
+            out Quaternion rot);
+
+        PosizionaEVeicolo(pos, rot);
         ImpostaVeicoloInPausa(false);
 
         // Attiva fisicamente il sistema di allarme velocità
-        if (speedWarning != null) 
+        if (speedWarning != null)
         {
             speedWarning.ResetWarningSystem();
             speedWarning.isSystemEnabled = true; // ACCENDI QUI
@@ -531,7 +556,7 @@ public class ExperimentManager : MonoBehaviour
     {
         ImpostaVeicoloInPausa(true);
 
-        if (speedWarning != null) 
+        if (speedWarning != null)
         {
             speedWarning.isSystemEnabled = false;
             speedWarning.ResetWarningSystem();
@@ -572,8 +597,8 @@ public class ExperimentManager : MonoBehaviour
     private IEnumerator SchermataFinePratica()
     {
         // Usiamo uno stato di pausa generico
-        currentState = ExperimentState.InstructionScreen; 
-        
+        currentState = ExperimentState.InstructionScreen;
+
         pauseScreenCanvas.SetActive(true);
         pauseInstructionsText.text = "Practice complete.\nPlease let the researcher know if you are ready.";
         pauseNextExitText.text = ""; // Nascondiamo l'uscita per ora
@@ -583,20 +608,85 @@ public class ExperimentManager : MonoBehaviour
         yield return new WaitUntil(() => Input.GetKeyDown(KeyCode.Space));
 
         // Una volta premuto, avviamo regolarmente il Trial 1 (che farà partire i suoi 30 secondi)
-        AvviaProssimoTrial(); 
+        AvviaProssimoTrial();
     }
 
     // --- METODI DI SUPPORTO VPP ---
+
+    /// <summary>
+    /// Calcola posizione e rotazione a <paramref name="distanceMetres"/> metri
+    /// lungo la spline, offsettate lateralmente lungo la normale orizzontale.
+    /// </summary>
+    private void GetPoseOnSpline(
+        SplineContainer container,
+        int splineIdx,
+        float distanceMetres,
+        float lateralOffset,
+        out Vector3 worldPos,
+        out Quaternion worldRot)
+    {
+        worldPos = Vector3.zero;
+        worldRot = Quaternion.identity;
+
+        if (container == null)
+        {
+            Debug.LogError("[ExperimentManager] SplineContainer non assegnato.", this);
+            return;
+        }
+
+        Spline spline = container.Splines[splineIdx];
+        float splineLength = spline.GetLength();
+
+        // Clamp per non superare la fine della spline
+        float clampedDist = Mathf.Clamp(distanceMetres, 0f, splineLength);
+
+        // In QUESTA versione di Splines:
+        //   - ritorna: posizione locale (float3)
+        //   - 4° out param: t normalizzato (float)
+        float3 localPos = SplineUtility.GetPointAtLinearDistance(
+            spline, 0f, clampedDist, out float t);
+
+        // Tangente locale a quel t
+        float3 localTangent = spline.EvaluateTangent(t);
+
+        Vector3 worldTangent = container.transform
+            .TransformDirection((Vector3)localTangent).normalized;
+
+        // Normale orizzontale (sinistra del senso di marcia, stessa convenzione di AICarInput)
+        Vector3 worldNormal = Vector3.Cross(Vector3.up, worldTangent).normalized;
+
+        // Posizione mondo + offset laterale
+        Vector3 worldCenter = container.transform.TransformPoint((Vector3)localPos);
+        worldPos = worldCenter + worldNormal * lateralOffset;
+
+        // Rotazione allineata alla tangente della spline (muso in avanti)
+        if (worldTangent.sqrMagnitude > 0.001f)
+            worldRot = Quaternion.LookRotation(worldTangent, Vector3.up);
+    }
+
+    /// <summary>
+    /// Vecchia API: posiziona il veicolo a partire da un Transform.
+    /// Mantenuta per retrocompatibilità con altri call-site.
+    /// </summary>
     private void PosizionaEVeicolo(Transform punto)
     {
-        if (veicoloGiocatore == null || punto == null)
+        if (punto == null)
+            return;
+
+        PosizionaEVeicolo(punto.position, punto.rotation);
+    }
+
+    /// <summary>
+    /// Posiziona il veicolo a partire da posizione e rotazione mondo.
+    /// </summary>
+    private void PosizionaEVeicolo(Vector3 posizione, Quaternion rotazione)
+    {
+        if (veicoloGiocatore == null)
             return;
 
         ImpostaVeicoloInPausa(true);
 
-        veicoloGiocatore.transform.SetPositionAndRotation(
-            punto.position,
-            punto.rotation);
+        veicoloGiocatore.transform.SetPositionAndRotation(posizione, rotazione);
 
         Rigidbody rb = veicoloGiocatore.GetComponentInChildren<Rigidbody>();
         if (rb != null)
@@ -630,7 +720,7 @@ public class ExperimentManager : MonoBehaviour
         pauseInstructionsText.text = "Please step out of the simulator.\nThe researcher will give you further instructions.";
         pauseNextExitText.text = "";
         pauseTimerText.text = "Waiting for researcher...";
-        
+
         // Attende che chi gestisce il test prema Spazio per riprendere
         yield return new WaitUntil(() => Input.GetKeyDown(KeyCode.Space));
         StartCoroutine(FaseSchermataIstruzioni());
@@ -650,7 +740,7 @@ public class ExperimentManager : MonoBehaviour
     private void CaricaSequenzaGruppo(int gruppo)
     {
         trialSequence.Clear();
-        
+
         switch (gruppo)
         {
             case 1:
@@ -799,7 +889,7 @@ public class ExperimentManager : MonoBehaviour
         string criticalWord = "";
         if (stimolo.tipo == TipoParola.ATTENZIONE) criticalWord = "ATTENZIONE";
         else if (stimolo.tipo == TipoParola.RALLENTARE) criticalWord = "RALLENTARE";
-        else if (stimolo.tipo == TipoParola.CONTROLLO) criticalWord = "TANG. NORD";
+        else if (stimolo.tipo == TipoParola.TANG_NORD) criticalWord = "TANG. NORD";
 
         if (stimolo.config == ConfigurazioneVMB.ABC)
         {

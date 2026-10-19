@@ -38,10 +38,10 @@ namespace DrivingSim
             [Range(0.1f, 1f)] public float brakeAggressiveness    = 0.9f;
 
             [Header("Fritzsche parameters")]
-            public float TD         = 1.8f;   // desired time gap
+            public float TD         = 1.0f;   // desired time gap
             public float Tr         = 0.5f;   // risky time gap
-            public float Ts         = 1.0f;   // safe time gap
-            public float aNormal    = 2.0f;   // normal acceleration [m/s²]
+            public float Ts         = 0.5f;   // safe time gap
+            public float aNormal    = 1.5f;   // normal acceleration [m/s²]
             public float aMaxBrake  = 6.0f;   // max deceleration [m/s²]
 
             [Header("CarController overrides (0 = keep current)")]
