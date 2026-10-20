@@ -10,7 +10,7 @@ using Unity.Mathematics;
 // --- STRUTTURE DATI ---
 public enum ExperimentState { NotStarted, PracticeInstruction, PracticeDriving, InstructionScreen, Driving, MidSessionBreak, Finished }
 public enum ConfigurazioneVMB { ABC, BCA } // ABC = Parola su Riga 1, BCA = Parola su Riga 3
-public enum TipoParola { ATTENZIONE, RALLENTARE, TANG_NORD }
+public enum TipoParola { ATTENZIONE, RALLENTARE, AL_KM_30 }
 
 [System.Serializable]
 public class StimoloVMB
@@ -59,6 +59,22 @@ public class ExperimentManager : MonoBehaviour
 
     [Tooltip("Distanza [m] dall'inizio della spline in cui posizionare il veicolo.")]
     public float distanzaDiPartenza = 500f;
+
+    [Header("Layout Autostrada (distanze dall'inizio della spline)")]
+    [Tooltip("Posizione del gantry (VMB) lungo la spline [m]. Il DataLogger misura distance_to_gantry da qui.\nUsa Tools > Highway > Generate Triggers > 'Read gantry from PMV model' per ricavarla dal modello in scena.")]
+    public float distanzaGantry = 2500f;
+    [Tooltip("Il VMB compare a questa distanza PRIMA del gantry [m] (VMB_APPEAR).")]
+    public float vmbAppareMetriPrimaDelGantry = 500f;
+    [Tooltip("Il testo diventa leggibile a questa distanza PRIMA del gantry [m] (VMB_READABLE). Imposta il valore reale di leggibilita'.")]
+    public float vmbLeggibileMetriPrimaDelGantry = 250f;
+    [Tooltip("Inizio della finestra SDLP baseline, PRIMA del gantry [m] (finisce a VMB_APPEAR).")]
+    public float sdlpBaselineMetriPrimaDelGantry = 800f;
+    [Tooltip("Dove inizia la corsia di uscita lungo la spline [m]. Le finestre di risposta (DV2/DV5) vengono troncate qui.")]
+    public float inizioCorsiaUscita = 4500f;
+
+    [Header("Pausa Lunga")]
+    [Tooltip("La pausa lunga (scendere dal simulatore) parte dopo questo numero di trial completati.")]
+    public int pausaLungaDopoNTrial = 6;
 
     private VPVehicleController vppVehicle;
 
@@ -389,6 +405,9 @@ public class ExperimentManager : MonoBehaviour
             );
         }
 
+        // Pre-build the road map used by the logger (distance_to_gantry / lane_offset).
+        ConfiguraLoggerStrada();
+
         // Hide participant screen.
         if (participantInputPanel != null)
             participantInputPanel.SetActive(false);
@@ -473,8 +492,8 @@ public class ExperimentManager : MonoBehaviour
             return;
         }
 
-        // Pausa lunga di 3 minuti dopo il trial 8 (indice 8 è il 9° trial, quindi controlliamo se siamo appena usciti dal trial 8)
-        if (currentTrialIndex == 8 && currentState != ExperimentState.MidSessionBreak)
+        // Pausa lunga dopo N trial completati (con 12 trial: dopo il 6°, cioe' a meta' sessione)
+        if (currentTrialIndex == pausaLungaDopoNTrial && currentState != ExperimentState.MidSessionBreak)
         {
             StartCoroutine(PausaLungaGSS());
             return;
@@ -548,7 +567,18 @@ public class ExperimentManager : MonoBehaviour
 
         // Avviamo la registrazione dei dati SOLO nei trial sperimentali
         if (dataLogger != null)
+        {
+            ConfiguraLoggerStrada();
+
+            StimoloVMB trial = trialSequence[currentTrialIndex];
+            dataLogger.SetTrialInfo(
+                trial.id,
+                EtichettaTipoParola(trial.tipo),
+                trial.config == ConfigurazioneVMB.ABC ? "Line 1" : "Line 3",
+                trial.nomeUscita);
+
             dataLogger.StartLogging(currentTrialIndex + 1);
+        }
     }
 
     // --- FUNZIONE DI FINE TRIAL UNIFICATA ---
@@ -717,9 +747,9 @@ public class ExperimentManager : MonoBehaviour
     {
         currentState = ExperimentState.MidSessionBreak;
         pauseScreenCanvas.SetActive(true);
-        pauseInstructionsText.text = "Please step out of the simulator.\nThe researcher will give you further instructions.";
+        pauseInstructionsText.text = "Per favore scendi dal simulatore.\nIl ricercatore ti dara' le informazioni.";
         pauseNextExitText.text = "";
-        pauseTimerText.text = "Waiting for researcher...";
+        pauseTimerText.text = "Aspetta il ricercatore...";
 
         // Attende che chi gestisce il test prema Spazio per riprendere
         yield return new WaitUntil(() => Input.GetKeyDown(KeyCode.Space));
@@ -731,7 +761,7 @@ public class ExperimentManager : MonoBehaviour
         ImpostaVeicoloInPausa(true);
         currentState = ExperimentState.Finished;
         pauseScreenCanvas.SetActive(true);
-        pauseInstructionsText.text = "Experiment complete.\nThank you for your participation.";
+        pauseInstructionsText.text = "Esperimento completato.\nGrazie per aver partecipato.";
         pauseNextExitText.text = "";
         pauseTimerText.text = "";
     }
@@ -745,134 +775,98 @@ public class ExperimentManager : MonoBehaviour
         {
             case 1:
                 // GRUPPO 1
-                trialSequence.Add(NuovoStimolo(68, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "GHIACCIO", "PERICOLO", "COMASINA"));
-                trialSequence.Add(NuovoStimolo(53, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "VIABILITA", "DIFFICOLTOSA", "BICOCCA"));
-                trialSequence.Add(NuovoStimolo(27, TipoParola.TANG_NORD, ConfigurazioneVMB.ABC, "RAFFICHE", "DI VENTO", "CORMANO"));
-                trialSequence.Add(NuovoStimolo(41, TipoParola.TANG_NORD, ConfigurazioneVMB.BCA, "CONTROLLO", "VELOCITÀ", "SESTO"));
-                trialSequence.Add(NuovoStimolo(44, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "VENTO FORTE", "IN CORSO ORA", "SEGRATE"));
-                trialSequence.Add(NuovoStimolo(80, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "TRANSITO", "DIFFICILE", "GOBBA"));
-                trialSequence.Add(NuovoStimolo(16, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "POSSIBILE", "GHIACCIO", "COMASINA"));
-                trialSequence.Add(NuovoStimolo(9, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "RAFFICHE", "IMPROVVISE", "BICOCCA"));
-                trialSequence.Add(NuovoStimolo(95, TipoParola.TANG_NORD, ConfigurazioneVMB.ABC, "TRAFFICO", "IRREGOLARE", "CORMANO"));
-                trialSequence.Add(NuovoStimolo(42, TipoParola.TANG_NORD, ConfigurazioneVMB.BCA, "PERICOLO", "SLITTAMENTO", "SESTO"));
-                trialSequence.Add(NuovoStimolo(79, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "POSSIBILE", "OSTACOLO", "SEGRATE"));
-                trialSequence.Add(NuovoStimolo(12, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "POSSIBILI", "INCIDENTI", "GOBBA"));
-                trialSequence.Add(NuovoStimolo(70, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "MANTENERE", "DISTANZA", "COMASINA"));
-                trialSequence.Add(NuovoStimolo(58, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "CONTROLLI", "IN CORSO ORA", "BICOCCA"));
-                trialSequence.Add(NuovoStimolo(8, TipoParola.TANG_NORD, ConfigurazioneVMB.ABC, "SEGNALATI", "TAMPONAMENTI", "CORMANO"));
-                trialSequence.Add(NuovoStimolo(25, TipoParola.TANG_NORD, ConfigurazioneVMB.BCA, "CARREGGIATA", "SCIVOLOSA", "SESTO"));
-                trialSequence.Add(NuovoStimolo(32, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "GHIACCIO", "A TRATTI", "SEGRATE"));
-                trialSequence.Add(NuovoStimolo(73, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "POSSIBILI", "ALLAGAMENTI", "GOBBA"));
+                trialSequence.Add(NuovoStimolo(11, TipoParola.AL_KM_30, ConfigurazioneVMB.ABC, "AUTOMEZZO", "IN AVARIA", "COMASINA"));
+                trialSequence.Add(NuovoStimolo(4, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "SEGNALATI", "TAMPONAMENTI", "BICOCCA"));
+                trialSequence.Add(NuovoStimolo(10, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "INCENDIO", "IN GALLERIA", "CORMANO"));
+                trialSequence.Add(NuovoStimolo(7, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "CANTIERE IN", "MOVIMENTO", "SESTO"));
+                trialSequence.Add(NuovoStimolo(6, TipoParola.AL_KM_30, ConfigurazioneVMB.BCA, "RAFFICHE", "DI VENTO", "SEGRATE"));
+                trialSequence.Add(NuovoStimolo(2, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "OSTACOLO", "IN STRADA", "GOBBA"));
+                trialSequence.Add(NuovoStimolo(5, TipoParola.AL_KM_30, ConfigurazioneVMB.ABC, "TRAFFICO", "IRREGOLARE", "COMASINA"));
+                trialSequence.Add(NuovoStimolo(3, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "VIABILITA", "DIFFICOLTOSA", "BICOCCA"));
+                trialSequence.Add(NuovoStimolo(12, TipoParola.AL_KM_30, ConfigurazioneVMB.BCA, "SEGNALETICA", "PROVVISORIA", "CORMANO"));
+                trialSequence.Add(NuovoStimolo(9, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "MATERIALI", "DISPERSI", "SESTO"));
+                trialSequence.Add(NuovoStimolo(1, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "LAVORATORI", "IN CORSIA", "SEGRATE"));
+                trialSequence.Add(NuovoStimolo(8, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "GUARDRAIL", "DANNEGGIATO", "GOBBA"));
                 break;
 
             case 2:
                 // GRUPPO 2
-                trialSequence.Add(NuovoStimolo(68, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "GHIACCIO", "PERICOLO", "COMASINA"));
-                trialSequence.Add(NuovoStimolo(53, TipoParola.TANG_NORD, ConfigurazioneVMB.ABC, "VIABILITA", "DIFFICOLTOSA", "BICOCCA"));
-                trialSequence.Add(NuovoStimolo(27, TipoParola.TANG_NORD, ConfigurazioneVMB.BCA, "RAFFICHE", "DI VENTO", "CORMANO"));
-                trialSequence.Add(NuovoStimolo(41, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "CONTROLLO", "VELOCITÀ", "SESTO"));
-                trialSequence.Add(NuovoStimolo(44, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "VENTO FORTE", "IN CORSO ORA", "SEGRATE"));
-                trialSequence.Add(NuovoStimolo(80, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "TRANSITO", "DIFFICILE", "GOBBA"));
-                trialSequence.Add(NuovoStimolo(16, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "POSSIBILE", "GHIACCIO", "COMASINA"));
-                trialSequence.Add(NuovoStimolo(9, TipoParola.TANG_NORD, ConfigurazioneVMB.ABC, "RAFFICHE", "IMPROVVISE", "BICOCCA"));
-                trialSequence.Add(NuovoStimolo(95, TipoParola.TANG_NORD, ConfigurazioneVMB.BCA, "TRAFFICO", "IRREGOLARE", "CORMANO"));
-                trialSequence.Add(NuovoStimolo(42, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "PERICOLO", "SLITTAMENTO", "SESTO"));
-                trialSequence.Add(NuovoStimolo(79, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "POSSIBILE", "OSTACOLO", "SEGRATE"));
-                trialSequence.Add(NuovoStimolo(12, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "POSSIBILI", "INCIDENTI", "GOBBA"));
-                trialSequence.Add(NuovoStimolo(70, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "MANTENERE", "DISTANZA", "COMASINA"));
-                trialSequence.Add(NuovoStimolo(58, TipoParola.TANG_NORD, ConfigurazioneVMB.ABC, "CONTROLLI", "IN CORSO ORA", "BICOCCA"));
-                trialSequence.Add(NuovoStimolo(8, TipoParola.TANG_NORD, ConfigurazioneVMB.BCA, "SEGNALATI", "TAMPONAMENTI", "CORMANO"));
-                trialSequence.Add(NuovoStimolo(25, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "CARREGGIATA", "SCIVOLOSA", "SESTO"));
-                trialSequence.Add(NuovoStimolo(32, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "GHIACCIO", "A TRATTI", "SEGRATE"));
-                trialSequence.Add(NuovoStimolo(73, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "POSSIBILI", "ALLAGAMENTI", "GOBBA"));
+                trialSequence.Add(NuovoStimolo(12, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "SEGNALETICA", "PROVVISORIA", "COMASINA"));
+                trialSequence.Add(NuovoStimolo(6, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "RAFFICHE", "DI VENTO", "BICOCCA"));
+                trialSequence.Add(NuovoStimolo(5, TipoParola.AL_KM_30, ConfigurazioneVMB.BCA, "TRAFFICO", "IRREGOLARE", "CORMANO"));
+                trialSequence.Add(NuovoStimolo(8, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "GUARDRAIL", "DANNEGGIATO", "SESTO"));
+                trialSequence.Add(NuovoStimolo(4, TipoParola.AL_KM_30, ConfigurazioneVMB.ABC, "SEGNALATI", "TAMPONAMENTI", "SEGRATE"));
+                trialSequence.Add(NuovoStimolo(11, TipoParola.AL_KM_30, ConfigurazioneVMB.BCA, "AUTOMEZZO", "IN AVARIA", "GOBBA"));
+                trialSequence.Add(NuovoStimolo(3, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "VIABILITA", "DIFFICOLTOSA", "COMASINA"));
+                trialSequence.Add(NuovoStimolo(10, TipoParola.AL_KM_30, ConfigurazioneVMB.ABC, "INCENDIO", "IN GALLERIA", "BICOCCA"));
+                trialSequence.Add(NuovoStimolo(7, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "CANTIERE IN", "MOVIMENTO", "CORMANO"));
+                trialSequence.Add(NuovoStimolo(2, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "OSTACOLO", "IN STRADA", "SESTO"));
+                trialSequence.Add(NuovoStimolo(9, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "MATERIALI", "DISPERSI", "SEGRATE"));
+                trialSequence.Add(NuovoStimolo(1, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "LAVORATORI", "IN CORSIA", "GOBBA"));
                 break;
 
             case 3:
                 // GRUPPO 3
-                trialSequence.Add(NuovoStimolo(68, TipoParola.TANG_NORD, ConfigurazioneVMB.ABC, "GHIACCIO", "PERICOLO", "COMASINA"));
-                trialSequence.Add(NuovoStimolo(53, TipoParola.TANG_NORD, ConfigurazioneVMB.BCA, "VIABILITA", "DIFFICOLTOSA", "BICOCCA"));
-                trialSequence.Add(NuovoStimolo(27, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "RAFFICHE", "DI VENTO", "CORMANO"));
-                trialSequence.Add(NuovoStimolo(41, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "CONTROLLO", "VELOCITÀ", "SESTO"));
-                trialSequence.Add(NuovoStimolo(44, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "VENTO FORTE", "IN CORSO ORA", "SEGRATE"));
-                trialSequence.Add(NuovoStimolo(80, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "TRANSITO", "DIFFICILE", "GOBBA"));
-                trialSequence.Add(NuovoStimolo(16, TipoParola.TANG_NORD, ConfigurazioneVMB.ABC, "POSSIBILE", "GHIACCIO", "COMASINA"));
-                trialSequence.Add(NuovoStimolo(9, TipoParola.TANG_NORD, ConfigurazioneVMB.BCA, "RAFFICHE", "IMPROVVISE", "BICOCCA"));
-                trialSequence.Add(NuovoStimolo(95, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "TRAFFICO", "IRREGOLARE", "CORMANO"));
-                trialSequence.Add(NuovoStimolo(42, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "PERICOLO", "SLITTAMENTO", "SESTO"));
-                trialSequence.Add(NuovoStimolo(79, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "POSSIBILE", "OSTACOLO", "SEGRATE"));
-                trialSequence.Add(NuovoStimolo(12, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "POSSIBILI", "INCIDENTI", "GOBBA"));
-                trialSequence.Add(NuovoStimolo(70, TipoParola.TANG_NORD, ConfigurazioneVMB.ABC, "MANTENERE", "DISTANZA", "COMASINA"));
-                trialSequence.Add(NuovoStimolo(58, TipoParola.TANG_NORD, ConfigurazioneVMB.BCA, "CONTROLLI", "IN CORSO ORA", "BICOCCA"));
-                trialSequence.Add(NuovoStimolo(8, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "SEGNALATI", "TAMPONAMENTI", "CORMANO"));
-                trialSequence.Add(NuovoStimolo(25, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "CARREGGIATA", "SCIVOLOSA", "SESTO"));
-                trialSequence.Add(NuovoStimolo(32, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "GHIACCIO", "A TRATTI", "SEGRATE"));
-                trialSequence.Add(NuovoStimolo(73, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "POSSIBILI", "ALLAGAMENTI", "GOBBA"));
+                trialSequence.Add(NuovoStimolo(12, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "SEGNALETICA", "PROVVISORIA", "COMASINA"));
+                trialSequence.Add(NuovoStimolo(3, TipoParola.AL_KM_30, ConfigurazioneVMB.ABC, "VIABILITA", "DIFFICOLTOSA", "BICOCCA"));
+                trialSequence.Add(NuovoStimolo(8, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "GUARDRAIL", "DANNEGGIATO", "CORMANO"));
+                trialSequence.Add(NuovoStimolo(5, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "TRAFFICO", "IRREGOLARE", "SESTO"));
+                trialSequence.Add(NuovoStimolo(2, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "OSTACOLO", "IN STRADA", "SEGRATE"));
+                trialSequence.Add(NuovoStimolo(11, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "AUTOMEZZO", "IN AVARIA", "GOBBA"));
+                trialSequence.Add(NuovoStimolo(7, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "CANTIERE IN", "MOVIMENTO", "COMASINA"));
+                trialSequence.Add(NuovoStimolo(4, TipoParola.AL_KM_30, ConfigurazioneVMB.BCA, "SEGNALATI", "TAMPONAMENTI", "BICOCCA"));
+                trialSequence.Add(NuovoStimolo(1, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "LAVORATORI", "IN CORSIA", "CORMANO"));
+                trialSequence.Add(NuovoStimolo(9, TipoParola.AL_KM_30, ConfigurazioneVMB.ABC, "MATERIALI", "DISPERSI", "SESTO"));
+                trialSequence.Add(NuovoStimolo(6, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "RAFFICHE", "DI VENTO", "SEGRATE"));
+                trialSequence.Add(NuovoStimolo(10, TipoParola.AL_KM_30, ConfigurazioneVMB.BCA, "INCENDIO", "IN GALLERIA", "GOBBA"));
                 break;
 
             case 4:
                 // GRUPPO 4
-                trialSequence.Add(NuovoStimolo(68, TipoParola.TANG_NORD, ConfigurazioneVMB.BCA, "GHIACCIO", "PERICOLO", "COMASINA"));
-                trialSequence.Add(NuovoStimolo(53, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "VIABILITA", "DIFFICOLTOSA", "BICOCCA"));
-                trialSequence.Add(NuovoStimolo(27, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "RAFFICHE", "DI VENTO", "CORMANO"));
-                trialSequence.Add(NuovoStimolo(41, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "CONTROLLO", "VELOCITÀ", "SESTO"));
-                trialSequence.Add(NuovoStimolo(44, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "VENTO FORTE", "IN CORSO ORA", "SEGRATE"));
-                trialSequence.Add(NuovoStimolo(80, TipoParola.TANG_NORD, ConfigurazioneVMB.ABC, "TRANSITO", "DIFFICILE", "GOBBA"));
-                trialSequence.Add(NuovoStimolo(16, TipoParola.TANG_NORD, ConfigurazioneVMB.BCA, "POSSIBILE", "GHIACCIO", "COMASINA"));
-                trialSequence.Add(NuovoStimolo(9, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "RAFFICHE", "IMPROVVISE", "BICOCCA"));
-                trialSequence.Add(NuovoStimolo(95, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "TRAFFICO", "IRREGOLARE", "CORMANO"));
-                trialSequence.Add(NuovoStimolo(42, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "PERICOLO", "SLITTAMENTO", "SESTO"));
-                trialSequence.Add(NuovoStimolo(79, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "POSSIBILE", "OSTACOLO", "SEGRATE"));
-                trialSequence.Add(NuovoStimolo(12, TipoParola.TANG_NORD, ConfigurazioneVMB.ABC, "POSSIBILI", "INCIDENTI", "GOBBA"));
-                trialSequence.Add(NuovoStimolo(70, TipoParola.TANG_NORD, ConfigurazioneVMB.BCA, "MANTENERE", "DISTANZA", "COMASINA"));
-                trialSequence.Add(NuovoStimolo(58, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "CONTROLLI", "IN CORSO ORA", "BICOCCA"));
-                trialSequence.Add(NuovoStimolo(8, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "SEGNALATI", "TAMPONAMENTI", "CORMANO"));
-                trialSequence.Add(NuovoStimolo(25, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "CARREGGIATA", "SCIVOLOSA", "SESTO"));
-                trialSequence.Add(NuovoStimolo(32, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "GHIACCIO", "A TRATTI", "SEGRATE"));
-                trialSequence.Add(NuovoStimolo(73, TipoParola.TANG_NORD, ConfigurazioneVMB.ABC, "POSSIBILI", "ALLAGAMENTI", "GOBBA"));
+                trialSequence.Add(NuovoStimolo(10, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "INCENDIO", "IN GALLERIA", "COMASINA"));
+                trialSequence.Add(NuovoStimolo(3, TipoParola.AL_KM_30, ConfigurazioneVMB.BCA, "VIABILITA", "DIFFICOLTOSA", "BICOCCA"));
+                trialSequence.Add(NuovoStimolo(7, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "CANTIERE IN", "MOVIMENTO", "CORMANO"));
+                trialSequence.Add(NuovoStimolo(2, TipoParola.AL_KM_30, ConfigurazioneVMB.ABC, "OSTACOLO", "IN STRADA", "SESTO"));
+                trialSequence.Add(NuovoStimolo(9, TipoParola.AL_KM_30, ConfigurazioneVMB.BCA, "MATERIALI", "DISPERSI", "SEGRATE"));
+                trialSequence.Add(NuovoStimolo(4, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "SEGNALATI", "TAMPONAMENTI", "GOBBA"));
+                trialSequence.Add(NuovoStimolo(1, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "LAVORATORI", "IN CORSIA", "COMASINA"));
+                trialSequence.Add(NuovoStimolo(12, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "SEGNALETICA", "PROVVISORIA", "BICOCCA"));
+                trialSequence.Add(NuovoStimolo(8, TipoParola.AL_KM_30, ConfigurazioneVMB.ABC, "GUARDRAIL", "DANNEGGIATO", "CORMANO"));
+                trialSequence.Add(NuovoStimolo(5, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "TRAFFICO", "IRREGOLARE", "SESTO"));
+                trialSequence.Add(NuovoStimolo(11, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "AUTOMEZZO", "IN AVARIA", "SEGRATE"));
+                trialSequence.Add(NuovoStimolo(6, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "RAFFICHE", "DI VENTO", "GOBBA"));
                 break;
 
             case 5:
                 // GRUPPO 5
-                trialSequence.Add(NuovoStimolo(68, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "GHIACCIO", "PERICOLO", "COMASINA"));
-                trialSequence.Add(NuovoStimolo(53, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "VIABILITA", "DIFFICOLTOSA", "BICOCCA"));
-                trialSequence.Add(NuovoStimolo(27, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "RAFFICHE", "DI VENTO", "CORMANO"));
-                trialSequence.Add(NuovoStimolo(41, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "CONTROLLO", "VELOCITÀ", "SESTO"));
-                trialSequence.Add(NuovoStimolo(44, TipoParola.TANG_NORD, ConfigurazioneVMB.ABC, "VENTO FORTE", "IN CORSO ORA", "SEGRATE"));
-                trialSequence.Add(NuovoStimolo(80, TipoParola.TANG_NORD, ConfigurazioneVMB.BCA, "TRANSITO", "DIFFICILE", "GOBBA"));
-                trialSequence.Add(NuovoStimolo(16, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "POSSIBILE", "GHIACCIO", "COMASINA"));
-                trialSequence.Add(NuovoStimolo(9, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "RAFFICHE", "IMPROVVISE", "BICOCCA"));
-                trialSequence.Add(NuovoStimolo(95, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "TRAFFICO", "IRREGOLARE", "CORMANO"));
-                trialSequence.Add(NuovoStimolo(42, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "PERICOLO", "SLITTAMENTO", "SESTO"));
-                trialSequence.Add(NuovoStimolo(79, TipoParola.TANG_NORD, ConfigurazioneVMB.ABC, "POSSIBILE", "OSTACOLO", "SEGRATE"));
-                trialSequence.Add(NuovoStimolo(12, TipoParola.TANG_NORD, ConfigurazioneVMB.BCA, "POSSIBILI", "INCIDENTI", "GOBBA"));
-                trialSequence.Add(NuovoStimolo(70, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "MANTENERE", "DISTANZA", "COMASINA"));
-                trialSequence.Add(NuovoStimolo(58, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "CONTROLLI", "IN CORSO ORA", "BICOCCA"));
-                trialSequence.Add(NuovoStimolo(8, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "SEGNALATI", "TAMPONAMENTI", "CORMANO"));
-                trialSequence.Add(NuovoStimolo(25, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "CARREGGIATA", "SCIVOLOSA", "SESTO"));
-                trialSequence.Add(NuovoStimolo(32, TipoParola.TANG_NORD, ConfigurazioneVMB.ABC, "GHIACCIO", "A TRATTI", "SEGRATE"));
-                trialSequence.Add(NuovoStimolo(73, TipoParola.TANG_NORD, ConfigurazioneVMB.BCA, "POSSIBILI", "ALLAGAMENTI", "GOBBA"));
+                trialSequence.Add(NuovoStimolo(9, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "MATERIALI", "DISPERSI", "COMASINA"));
+                trialSequence.Add(NuovoStimolo(8, TipoParola.AL_KM_30, ConfigurazioneVMB.BCA, "GUARDRAIL", "DANNEGGIATO", "BICOCCA"));
+                trialSequence.Add(NuovoStimolo(11, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "AUTOMEZZO", "IN AVARIA", "CORMANO"));
+                trialSequence.Add(NuovoStimolo(10, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "INCENDIO", "IN GALLERIA", "SESTO"));
+                trialSequence.Add(NuovoStimolo(7, TipoParola.AL_KM_30, ConfigurazioneVMB.ABC, "CANTIERE IN", "MOVIMENTO", "SEGRATE"));
+                trialSequence.Add(NuovoStimolo(5, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "TRAFFICO", "IRREGOLARE", "GOBBA"));
+                trialSequence.Add(NuovoStimolo(2, TipoParola.AL_KM_30, ConfigurazioneVMB.BCA, "OSTACOLO", "IN STRADA", "COMASINA"));
+                trialSequence.Add(NuovoStimolo(4, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "SEGNALATI", "TAMPONAMENTI", "BICOCCA"));
+                trialSequence.Add(NuovoStimolo(1, TipoParola.AL_KM_30, ConfigurazioneVMB.ABC, "LAVORATORI", "IN CORSIA", "CORMANO"));
+                trialSequence.Add(NuovoStimolo(6, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "RAFFICHE", "DI VENTO", "SESTO"));
+                trialSequence.Add(NuovoStimolo(12, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "SEGNALETICA", "PROVVISORIA", "SEGRATE"));
+                trialSequence.Add(NuovoStimolo(3, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "VIABILITA", "DIFFICOLTOSA", "GOBBA"));
                 break;
 
             case 6:
                 // GRUPPO 6
-                trialSequence.Add(NuovoStimolo(68, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "GHIACCIO", "PERICOLO", "COMASINA"));
-                trialSequence.Add(NuovoStimolo(53, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "VIABILITA", "DIFFICOLTOSA", "BICOCCA"));
-                trialSequence.Add(NuovoStimolo(27, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "RAFFICHE", "DI VENTO", "CORMANO"));
-                trialSequence.Add(NuovoStimolo(41, TipoParola.TANG_NORD, ConfigurazioneVMB.ABC, "CONTROLLO", "VELOCITÀ", "SESTO"));
-                trialSequence.Add(NuovoStimolo(44, TipoParola.TANG_NORD, ConfigurazioneVMB.BCA, "VENTO FORTE", "IN CORSO ORA", "SEGRATE"));
-                trialSequence.Add(NuovoStimolo(80, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "TRANSITO", "DIFFICILE", "GOBBA"));
-                trialSequence.Add(NuovoStimolo(16, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "POSSIBILE", "GHIACCIO", "COMASINA"));
-                trialSequence.Add(NuovoStimolo(9, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "RAFFICHE", "IMPROVVISE", "BICOCCA"));
-                trialSequence.Add(NuovoStimolo(95, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "TRAFFICO", "IRREGOLARE", "CORMANO"));
-                trialSequence.Add(NuovoStimolo(42, TipoParola.TANG_NORD, ConfigurazioneVMB.ABC, "PERICOLO", "SLITTAMENTO", "SESTO"));
-                trialSequence.Add(NuovoStimolo(79, TipoParola.TANG_NORD, ConfigurazioneVMB.BCA, "POSSIBILE", "OSTACOLO", "SEGRATE"));
-                trialSequence.Add(NuovoStimolo(12, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "POSSIBILI", "INCIDENTI", "GOBBA"));
-                trialSequence.Add(NuovoStimolo(70, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "MANTENERE", "DISTANZA", "COMASINA"));
-                trialSequence.Add(NuovoStimolo(58, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "CONTROLLI", "IN CORSO ORA", "BICOCCA"));
-                trialSequence.Add(NuovoStimolo(8, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "SEGNALATI", "TAMPONAMENTI", "CORMANO"));
-                trialSequence.Add(NuovoStimolo(25, TipoParola.TANG_NORD, ConfigurazioneVMB.ABC, "CARREGGIATA", "SCIVOLOSA", "SESTO"));
-                trialSequence.Add(NuovoStimolo(32, TipoParola.TANG_NORD, ConfigurazioneVMB.BCA, "GHIACCIO", "A TRATTI", "SEGRATE"));
-                trialSequence.Add(NuovoStimolo(73, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "POSSIBILI", "ALLAGAMENTI", "GOBBA"));
+                trialSequence.Add(NuovoStimolo(6, TipoParola.AL_KM_30, ConfigurazioneVMB.ABC, "RAFFICHE", "DI VENTO", "COMASINA"));
+                trialSequence.Add(NuovoStimolo(8, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "GUARDRAIL", "DANNEGGIATO", "BICOCCA"));
+                trialSequence.Add(NuovoStimolo(11, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "AUTOMEZZO", "IN AVARIA", "CORMANO"));
+                trialSequence.Add(NuovoStimolo(1, TipoParola.AL_KM_30, ConfigurazioneVMB.BCA, "LAVORATORI", "IN CORSIA", "SESTO"));
+                trialSequence.Add(NuovoStimolo(4, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "SEGNALATI", "TAMPONAMENTI", "SEGRATE"));
+                trialSequence.Add(NuovoStimolo(9, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "MATERIALI", "DISPERSI", "GOBBA"));
+                trialSequence.Add(NuovoStimolo(12, TipoParola.AL_KM_30, ConfigurazioneVMB.ABC, "SEGNALETICA", "PROVVISORIA", "COMASINA"));
+                trialSequence.Add(NuovoStimolo(10, TipoParola.RALLENTARE, ConfigurazioneVMB.ABC, "INCENDIO", "IN GALLERIA", "BICOCCA"));
+                trialSequence.Add(NuovoStimolo(3, TipoParola.ATTENZIONE, ConfigurazioneVMB.BCA, "VIABILITA", "DIFFICOLTOSA", "CORMANO"));
+                trialSequence.Add(NuovoStimolo(2, TipoParola.ATTENZIONE, ConfigurazioneVMB.ABC, "OSTACOLO", "IN STRADA", "SESTO"));
+                trialSequence.Add(NuovoStimolo(7, TipoParola.AL_KM_30, ConfigurazioneVMB.BCA, "CANTIERE IN", "MOVIMENTO", "SEGRATE"));
+                trialSequence.Add(NuovoStimolo(5, TipoParola.RALLENTARE, ConfigurazioneVMB.BCA, "TRAFFICO", "IRREGOLARE", "GOBBA"));
                 break;
         }
         Debug.Log($"Caricata sequenza di {trialSequence.Count} trial per il Gruppo {gruppo}");
@@ -883,13 +877,38 @@ public class ExperimentManager : MonoBehaviour
         return new StimoloVMB { id = id, tipo = tipo, config = config, contestoRiga2 = riga2, contestoRiga3 = riga3, nomeUscita = uscita };
     }
 
+    private void ConfiguraLoggerStrada()
+    {
+        if (dataLogger == null || splineSperimentale == null)
+            return;
+
+        dataLogger.ConfigureRoad(
+            splineSperimentale,
+            splineIndexSperimentale,
+            laneOffsetSperimentale,
+            distanzaGantry,
+            inizioCorsiaUscita);
+    }
+
+    // Etichette usate nel CSV (stesse dell'Excel: Neutral / Action / Warning)
+    private static string EtichettaTipoParola(TipoParola tipo)
+    {
+        switch (tipo)
+        {
+            case TipoParola.AL_KM_30: return "Neutral";
+            case TipoParola.RALLENTARE: return "Action";
+            case TipoParola.ATTENZIONE: return "Warning";
+            default: return tipo.ToString();
+        }
+    }
+
     // --- GESTIONE FISICA DEI CARTELLI (TESTI) ---
     private void ApplicaStimoloAiCartelli(StimoloVMB stimolo)
     {
         string criticalWord = "";
         if (stimolo.tipo == TipoParola.ATTENZIONE) criticalWord = "ATTENZIONE";
         else if (stimolo.tipo == TipoParola.RALLENTARE) criticalWord = "RALLENTARE";
-        else if (stimolo.tipo == TipoParola.TANG_NORD) criticalWord = "TANG. NORD";
+        else if (stimolo.tipo == TipoParola.AL_KM_30) criticalWord = "AL KM 30";
 
         if (stimolo.config == ConfigurazioneVMB.ABC)
         {
