@@ -48,7 +48,7 @@ public class DataLogger : MonoBehaviour
     [Tooltip("Distanza firmata dal gantry [m]; negativa prima del gantry.")]
     public float distanceToGantry = float.NaN;
 
-    private float totalTrialOdometer = 0f;    // Metri percorsi da quando parte il trial
+    private float totalTrialOdometer = 0f;    // Metri percorsi da quando parte il trial (solo informativo)
     private bool trialValidityError = false;
 
     // --- Geometria strada (impostata da ExperimentManager.ConfigureRoad) ---
@@ -236,10 +236,12 @@ public class DataLogger : MonoBehaviour
         float distanceThisFrame = Vector3.Distance(carTransform.position, lastPosition);
         totalTrialOdometer += distanceThisFrame;
 
-        // 1. GATE DI VALIDITA' DELLA BASELINE (invariato: >=75 km/h per 5 s tra 1.0 e 1.4 km dall'inizio trial)
-        if (!speedBaselineCompleted && !trialValidityError)
+        // 1. GATE DI VALIDITA' DELLA BASELINE (piano di studio: finestra -1000..-500 m dal gantry)
+        //    La baseline e' valida solo se >=75 km/h per >=5 s consecutivi dentro la finestra.
+        //    Se si arriva a VMB_APPEAR (-500 m) senza averla ottenuta -> BASELINE_NOT_REACHED.
+        if (!speedBaselineCompleted && !trialValidityError && distToGantry >= SPEED_BASELINE_START_M)
         {
-            if (totalTrialOdometer >= 1000f)
+            if (distToGantry < SPEED_BASELINE_END_M)
             {
                 if (currentSpeedKmH >= 75f)
                 {
@@ -249,20 +251,20 @@ public class DataLogger : MonoBehaviour
                     if (speedAbove75Timer >= 5f)
                     {
                         speedBaselineCompleted = true;
-                        Debug.Log($"DataLogger: Speed Baseline acquisita a {totalTrialOdometer:F0} metri.");
+                        Debug.Log($"DataLogger: Speed Baseline acquisita a {distToGantry:F0} m dal gantry.");
                     }
                 }
                 else
                 {
+                    // Se scende sotto i 75 prima di finire i 5 secondi, resetta il timer locale
                     speedAbove75Timer = 0f;
                     speedBaselineData.Clear();
                 }
-
-                if (totalTrialOdometer >= 1400f && !speedBaselineCompleted)
-                {
-                    trialValidityError = true;
-                    Debug.Log("BASELINE_NOT_REACHED: L'utente non ha stabilizzato la velocità tra 1.0 e 1.4 km.");
-                }
+            }
+            else
+            {
+                trialValidityError = true;
+                Debug.Log("BASELINE_NOT_REACHED: L'utente non ha stabilizzato la velocità (>=75 km/h per 5 s) tra -1000 e -500 m dal gantry.");
             }
         }
 
@@ -363,7 +365,7 @@ public class DataLogger : MonoBehaviour
     public void Trigger_VMBAppear()
     {
         sdlpBaselineActive = false;
-        speedBaselineCompleted = true;
+        // NB: non segna piu' speedBaselineCompleted = true: nascondeva un gate fallito (il trigger scatta ~2 m prima di -500 m).
 
         if (isLoggingEnabled && double.IsNaN(tVmbAppear))
         {

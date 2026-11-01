@@ -294,9 +294,15 @@ MonoBehaviour:
   maxSteeringAngleDeg: 30
   steeringGain: 1.2
   maxSteeringOutput: 1
-  enableCurveSlowdown: 0
-  curveDetectionWaypoints: 4
-  minCurveSpeedFactor: 0.45
+  enableCurveSlowdown: 1
+  maxLateralAccel: 3
+  curvePlanningDecel: 2.5
+  curveLookAheadMargin: 30
+  curveLookAheadMin: 50
+  curveLookAheadMax: 250
+  minCurveSpeedKmh: 70
+  curveBrakeGain: 0.25
+  curveBrakeDeadband: 0.5
   desiredSpeedKmh: 100
   maxSpeedKmh: 110
   throttleAggressiveness: 0.8

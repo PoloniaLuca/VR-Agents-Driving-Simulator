@@ -79,16 +79,36 @@ namespace DrivingSim
         [Tooltip("Maximum steering output magnitude [0,1].")]
         [SerializeField, Range(0.1f, 1f)] private float maxSteeringOutput = 1f;
 
-        [Header("Curve Speed Reduction")]
-        [Tooltip("Enable automatic slow-down before sharp corners.")]
+        [Header("Curve Speed Control")]
+        [Tooltip("Enable automatic slow-down before curves (speed limit computed from the curve radius).")]
         [SerializeField] private bool enableCurveSlowdown = true;
 
-        [Tooltip("Number of waypoints ahead used to detect an incoming curve.")]
-        [SerializeField, Range(1, 8)] private int curveDetectionWaypoints = 4;
+        [Tooltip("Maximum lateral acceleration [m/s²] the AI accepts in a curve (PHYSICS units).\n" +
+                 "Curve speed = sqrt(maxLateralAccel x radius).\n" +
+                 "LOWER = slower in curves (use if cars still slide/crash). 2.5-3.5 is typical;\n" +
+                 "HIGHER = faster in curves (use if cars crawl).")]
+        [SerializeField] private float maxLateralAccel = 3.0f;
 
-        [Tooltip("Speed factor at maximum sharpness (90° corner).\n" +
-                 "0.4 = car slows to 40% of desired speed. 0.6 = 60%.")]
-        [SerializeField, Range(0.2f, 0.9f)] private float minCurveSpeedFactor = 0.45f;
+        [Tooltip("Deceleration [m/s²] assumed when planning the slow-down BEFORE a curve.\n" +
+                 "Lower = starts braking earlier and more gently. 2-3 m/s² is comfortable.")]
+        [SerializeField] private float curvePlanningDecel = 2.5f;
+
+        [Tooltip("Extra look-ahead [m] added on top of the braking distance.")]
+        [SerializeField] private float curveLookAheadMargin = 30f;
+
+        [Tooltip("Minimum / maximum distance [m] scanned ahead for curves.")]
+        [SerializeField] private float curveLookAheadMin = 50f;
+        [SerializeField] private float curveLookAheadMax = 250f;
+
+        [Tooltip("Never slow below this speed [real km/h] because of a curve (avoids crawling/stalling).")]
+        [SerializeField] private float minCurveSpeedKmh = 35f;
+
+        [Tooltip("Brake pedal [0-1] applied per m/s of speed ABOVE the curve limit (closed loop).\n" +
+                 "0.25 = 4 m/s over the limit -> full brake. Raise if cars still arrive too fast.")]
+        [SerializeField] private float curveBrakeGain = 0.25f;
+
+        [Tooltip("Overspeed [m/s] tolerated before the curve brake kicks in.")]
+        [SerializeField] private float curveBrakeDeadband = 0.5f;
 
         // ─────────────────────────────────────────────────────────────────────
         //  Inspector – Speed profile
@@ -170,6 +190,8 @@ namespace DrivingSim
         private int        waypointCount;
         private int        currentWPIndex;  // index of the next target waypoint
         private bool       reachedEnd;
+        private float[]    wpCurvature;           // curvature [1/m] at each waypoint
+        private float      lastCurveCeilingMs = float.MaxValue; // debug: current curve speed ceiling (physics m/s)
 
         // Fritzsche debug
         private FritzscheRegime currentRegime = FritzscheRegime.FreeDriving;
@@ -271,6 +293,8 @@ namespace DrivingSim
                 waypoints[i]     = SplineLanePoint(t);
             }
 
+            BuildCurvature();
+
             Debug.Log($"[AICarInput] '{name}': built {waypointCount} waypoints " +
                       $"(spacing ~{length / (waypointCount - 1):F1} m, " +
                       $"lane offset {laneOffset:F2} m).");
@@ -329,11 +353,12 @@ namespace DrivingSim
                 ? HighwaySpeedScale.Instance.RealKmhToPhysicsMs(desiredSpeedKmh)
                 : desiredSpeedKmh / 3.6f;
 
-            // Reduce desired speed before sharp corners so the car can actually turn
-            float desiredSpeedMs = baseDesiredSpeedMs * ComputeCurveSpeedFactor();
-
-            // 1. Advance waypoint index
+            // 1. Advance waypoint index (before the curve scan so it uses the updated waypoint)
             AdvanceWaypoint();
+
+            // Speed ceiling imposed by the curves ahead (physics m/s), including the braking distance needed
+            float curveCeilingMs = ComputeCurveSpeedCeiling(ownSpeedMs);
+            float desiredSpeedMs = Mathf.Min(baseDesiredSpeedMs, curveCeilingMs);
             
             // CALCOLO DINAMICO DELLA VISTA (circa 3.5 secondi di anticipo in base alla velocità)
             float dynamicRange = Mathf.Max(detectionRange, ownSpeedMs * 3.5f);
@@ -349,6 +374,9 @@ namespace DrivingSim
 
             // 4. Map accel → throttle / brake
             ApplyLongitudinalOutput(accel, ownSpeedMs);
+
+            // 4b. Closed-loop brake if the car is faster than the curve allows (Fritzsche free-driving only brakes at ~0.8 m/s²)
+            ApplyCurveBraking(ownSpeedMs, curveCeilingMs);
 
             // 5. Pure-Pursuit steering toward next waypoint
             ComputePurePursuitSteering(ownSpeedMs);
@@ -460,34 +488,106 @@ namespace DrivingSim
         }
 
         /// <summary>
-        /// Inspects the next <see cref="curveDetectionWaypoints"/> waypoint segments
-        /// and returns a speed multiplier in [minCurveSpeedFactor, 1.0].
-        ///
-        /// Sharp turn → small factor (slow down).
-        /// Straight   → factor = 1.0  (full desired speed).
+        /// Computes the path curvature [1/m] at every waypoint from the turning angle
+        /// between consecutive segments divided by their real length (so it does NOT
+        /// depend on waypointSpacing). The max over 3 neighbours is kept (conservative).
         /// </summary>
-        private float ComputeCurveSpeedFactor()
+        private void BuildCurvature()
         {
-            if (!enableCurveSlowdown || waypointCount < 3) return 1f;
+            wpCurvature = new float[waypointCount];
+            if (waypointCount < 3) return;
 
-            float maxAngle = 0f;   // radians
-
-            int end = Mathf.Min(currentWPIndex + curveDetectionWaypoints, waypointCount - 2);
-            for (int i = currentWPIndex; i < end; i++)
+            float[] raw = new float[waypointCount];
+            for (int i = 1; i < waypointCount - 1; i++)
             {
-                Vector3 ab = (waypoints[i + 1] - waypoints[i]).normalized;
-                Vector3 bc = (i + 2 < waypointCount)
-                    ? (waypoints[i + 2] - waypoints[i + 1]).normalized
-                    : ab;
+                Vector3 a = waypoints[i]     - waypoints[i - 1]; a.y = 0f;
+                Vector3 b = waypoints[i + 1] - waypoints[i];     b.y = 0f;
+                float la = a.magnitude, lb = b.magnitude;
+                if (la < 0.01f || lb < 0.01f) continue;
 
-                float dot   = Mathf.Clamp(Vector3.Dot(ab, bc), -1f, 1f);
-                float angle = Mathf.Acos(dot);   // 0 = straight, π/2 = 90° turn
-                maxAngle    = Mathf.Max(maxAngle, angle);
+                float angleRad = Vector3.Angle(a, b) * Mathf.Deg2Rad;
+                raw[i] = angleRad / (0.5f * (la + lb));
             }
 
-            // Map [0, π/2] → [1, minCurveSpeedFactor]
-            float t = Mathf.Clamp01(maxAngle / (Mathf.PI * 0.5f));
-            return Mathf.Lerp(1f, minCurveSpeedFactor, t);
+            for (int i = 0; i < waypointCount; i++)
+            {
+                float k = raw[i];
+                if (i > 0)                 k = Mathf.Max(k, raw[i - 1]);
+                if (i < waypointCount - 1) k = Mathf.Max(k, raw[i + 1]);
+                wpCurvature[i] = k;
+            }
+        }
+
+        /// <summary>Maximum cornering speed [physics m/s] at waypoint i.</summary>
+        private float CurveSpeedAt(int i)
+        {
+            float k = wpCurvature[i];
+            if (k < 1e-5f) return 1000f; // straight
+            return Mathf.Sqrt(Mathf.Max(0.1f, maxLateralAccel) / k);
+        }
+
+        /// <summary>
+        /// Speed ceiling [physics m/s] for the current position: for every curve within the
+        /// look-ahead, the speed we may still have NOW so that we can brake (at curvePlanningDecel)
+        /// down to that curve's speed by the time we reach it:  v_allowed = sqrt(v_curve² + 2·a·s).
+        /// </summary>
+        private float ComputeCurveSpeedCeiling(float ownSpeedMs)
+        {
+            lastCurveCeilingMs = float.MaxValue;
+            if (!enableCurveSlowdown || wpCurvature == null || waypointCount < 3)
+                return float.MaxValue;
+
+            float decel     = Mathf.Max(0.5f, curvePlanningDecel);
+            float lookAhead = Mathf.Clamp(
+                ownSpeedMs * ownSpeedMs / (2f * decel) + curveLookAheadMargin,
+                curveLookAheadMin, curveLookAheadMax);
+
+            float floorMs = HighwaySpeedScale.Instance != null
+                ? HighwaySpeedScale.Instance.RealKmhToPhysicsMs(minCurveSpeedKmh)
+                : minCurveSpeedKmh / 3.6f;
+
+            float ceiling = float.MaxValue;
+            float s = 0f;
+            int   cur = currentWPIndex;
+
+            // Start from the waypoint just passed (the curve we are in right now), s = 0
+            for (int i = Mathf.Max(0, cur - 1); i < waypointCount - 1; i++)
+            {
+                if (i == cur)
+                {
+                    Vector3 d = waypoints[i] - transform.position; d.y = 0f;
+                    s = d.magnitude;
+                }
+                else if (i > cur)
+                {
+                    Vector3 d = waypoints[i] - waypoints[i - 1]; d.y = 0f;
+                    s += d.magnitude;
+                }
+
+                if (s > lookAhead) break;
+
+                float vCurve   = Mathf.Max(CurveSpeedAt(i), floorMs);
+                float vAllowed = Mathf.Sqrt(vCurve * vCurve + 2f * decel * s);
+                if (vAllowed < ceiling) ceiling = vAllowed;
+            }
+
+            lastCurveCeilingMs = ceiling;
+            return ceiling;
+        }
+
+        /// <summary>
+        /// Closed-loop brake: if the car is faster than the curve ceiling, brake in proportion to the excess
+        /// and cut the throttle. Works whatever the real deceleration of the brake pedal is.
+        /// </summary>
+        private void ApplyCurveBraking(float ownSpeedMs, float curveCeilingMs)
+        {
+            if (!enableCurveSlowdown) return;
+
+            float overspeed = ownSpeedMs - curveCeilingMs;
+            if (overspeed <= curveBrakeDeadband) return;
+
+            Brake    = Mathf.Max(Brake, Mathf.Clamp01(overspeed * curveBrakeGain));
+            Throttle = 0f;
         }
 
         // ─────────────────────────────────────────────────────────────────────
@@ -799,6 +899,7 @@ namespace DrivingSim
                               $"Regime: <color=yellow>{currentRegime}</color>\n" +
                               $"Speed: {(rb.linearVelocity.magnitude * 3.6f):F1} km/h\n" +
                               $"Lane Offset: {laneOffset:F2}m\n" +
+                              $"Curve ceiling: {(lastCurveCeilingMs > 900f ? "-" : (lastCurveCeilingMs * 3.6f).ToString("F0") + " km/h (phys)")}\n" +
                               $"T:{Throttle:F2} B:{Brake:F2} S:{Steering:F2}";
 
                 UnityEditor.Handles.BeginGUI();

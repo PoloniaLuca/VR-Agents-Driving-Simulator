@@ -61,16 +61,16 @@ public class ExperimentManager : MonoBehaviour
     public float distanzaDiPartenza = 500f;
 
     [Header("Layout Autostrada (distanze dall'inizio della spline)")]
-    [Tooltip("Posizione del gantry (VMB) lungo la spline [m]. Il DataLogger misura distance_to_gantry da qui.\nUsa Tools > Highway > Generate Triggers > 'Read gantry from PMV model' per ricavarla dal modello in scena.")]
-    public float distanzaGantry = 2500f;
+    [Tooltip("Posizione del gantry (VMB) lungo la spline [m]. Il DataLogger misura distance_to_gantry da qui.\nPiano di studio: gantry a 1500 m dalla partenza del trial = distanzaDiPartenza (500) + 1500 = 2000.\nUsa Tools > Highway > Generate Triggers > 'Read gantry from PMV model' per verificarla sul modello in scena.")]
+    public float distanzaGantry = 2000f;
     [Tooltip("Il VMB compare a questa distanza PRIMA del gantry [m] (VMB_APPEAR).")]
     public float vmbAppareMetriPrimaDelGantry = 500f;
-    [Tooltip("Il testo diventa leggibile a questa distanza PRIMA del gantry [m] (VMB_READABLE). Imposta il valore reale di leggibilita'.")]
-    public float vmbLeggibileMetriPrimaDelGantry = 250f;
+    [Tooltip("Il testo diventa leggibile a questa distanza PRIMA del gantry [m] (VMB_READABLE). Piano di studio: 200 m (da calibrare nel pilot).")]
+    public float vmbLeggibileMetriPrimaDelGantry = 200f;
     [Tooltip("Inizio della finestra SDLP baseline, PRIMA del gantry [m] (finisce a VMB_APPEAR).")]
     public float sdlpBaselineMetriPrimaDelGantry = 800f;
-    [Tooltip("Dove inizia la corsia di uscita lungo la spline [m]. Le finestre di risposta (DV2/DV5) vengono troncate qui.")]
-    public float inizioCorsiaUscita = 4500f;
+    [Tooltip("Dove inizia la corsia di uscita lungo la spline [m]. Piano di studio: cartello bianco a +2000 m dal gantry = 4000.\nLe finestre di risposta (DV2/DV5) vengono troncate qui.")]
+    public float inizioCorsiaUscita = 4000f;
 
     [Header("Pausa Lunga")]
     [Tooltip("La pausa lunga (scendere dal simulatore) parte dopo questo numero di trial completati.")]
@@ -436,15 +436,15 @@ public class ExperimentManager : MonoBehaviour
         MostraTestiPausa();
 
         pauseInstructionsText.text =
-            "PRACTICE TRIAL\nDrive in the right lane. Maintain ~80 km/h.\nTake the exit when it appears.";
+            "FAMILIARIZZAZIONE\nMantieni la destra e segui le norme dell'autostrada. \nPrendi l'uscita quando compare.";
 
         // Puoi mettere il nome dell'uscita che hai scritto fisicamente nei cartelli della pratica
-        pauseNextExitText.text = "Next exit: <b>MONZA</b>";
+        pauseNextExitText.text = "Prossima uscita: <b>MONZA</b>";
 
         float timer = 1f;
         while (timer > 0)
         {
-            pauseTimerText.text = $"Starting practice in: {Mathf.Ceil(timer)}s";
+            pauseTimerText.text = $"Inizio pratica in: {Mathf.Ceil(timer)}s";
             timer -= Time.deltaTime;
             yield return null;
         }
@@ -512,8 +512,8 @@ public class ExperimentManager : MonoBehaviour
         MostraTestiPausa();
 
         pauseInstructionsText.text =
-            "Drive in the right lane. Maintain ~80 km/h.\nTake the exit when it appears.\n<size=80%>(If your speed drops well below normal highway speed, you will hear a short beep as a reminder.).</size>";
-        pauseNextExitText.text = $"Next exit: <b>{trialAttuale.nomeUscita}</b>";
+            "Mantieni la destra e segui le norme dell'autostrada. \nPrendi l'uscita quando compare.\n<size=80%>(Se la tua velocità scende sotto la normale velocità dell'autostrada, sentirai un suono per avvisarti.).</size>";
+        pauseNextExitText.text = $"Prossima uscita: <b>{trialAttuale.nomeUscita}</b>";
 
         // Compila fisicamente i cartelli 3D in background
         ApplicaStimoloAiCartelli(trialAttuale);
@@ -522,7 +522,7 @@ public class ExperimentManager : MonoBehaviour
         float timer = 1f;
         while (timer > 0)
         {
-            pauseTimerText.text = $"Starting in: {Mathf.Ceil(timer)}s";
+            pauseTimerText.text = $"Inizio in: {Mathf.Ceil(timer)}s";
             timer -= Time.deltaTime;
             yield return null;
         }
@@ -630,9 +630,9 @@ public class ExperimentManager : MonoBehaviour
         currentState = ExperimentState.InstructionScreen;
 
         pauseScreenCanvas.SetActive(true);
-        pauseInstructionsText.text = "Practice complete.\nPlease let the researcher know if you are ready.";
+        pauseInstructionsText.text = "Fase di pratica completata.\nAvvisa il ricercatore che sei pronto";
         pauseNextExitText.text = ""; // Nascondiamo l'uscita per ora
-        pauseTimerText.text = "Researcher: Press SPACE to start the experiment...";
+        pauseTimerText.text = "Ricercatore: Premi SPAZIO per iniziare l'esperimento...";
 
         // Il sistema si "congela" finché non premi la barra spaziatrice
         yield return new WaitUntil(() => Input.GetKeyDown(KeyCode.Space));
