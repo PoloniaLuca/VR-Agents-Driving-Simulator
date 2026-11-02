@@ -48,7 +48,7 @@ namespace DrivingSim
         [Tooltip("Arc-length interval [m] between auto-generated waypoints.\n" +
                  "Smaller = follows curves more precisely but costs marginally more.\n" +
                  "Good default: 15–25 m.")]
-        [SerializeField] private float waypointSpacing = 10f;
+        [SerializeField] private float waypointSpacing = 5f;
 
         // ─────────────────────────────────────────────────────────────────────
         //  Inspector – Pure-Pursuit steering
@@ -101,7 +101,7 @@ namespace DrivingSim
         [SerializeField] private float curveLookAheadMax = 250f;
 
         [Tooltip("Never slow below this speed [real km/h] because of a curve (avoids crawling/stalling).")]
-        [SerializeField] private float minCurveSpeedKmh = 35f;
+        [SerializeField] private float minCurveSpeedKmh = 90f;
 
         [Tooltip("Brake pedal [0-1] applied per m/s of speed ABOVE the curve limit (closed loop).\n" +
                  "0.25 = 4 m/s over the limit -> full brake. Raise if cars still arrive too fast.")]
@@ -294,10 +294,6 @@ namespace DrivingSim
             }
 
             BuildCurvature();
-
-            Debug.Log($"[AICarInput] '{name}': built {waypointCount} waypoints " +
-                      $"(spacing ~{length / (waypointCount - 1):F1} m, " +
-                      $"lane offset {laneOffset:F2} m).");
         }
 
         /// <summary>

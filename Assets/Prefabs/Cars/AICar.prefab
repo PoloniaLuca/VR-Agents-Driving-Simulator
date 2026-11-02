@@ -300,7 +300,7 @@ MonoBehaviour:
   curveLookAheadMargin: 30
   curveLookAheadMin: 50
   curveLookAheadMax: 250
-  minCurveSpeedKmh: 70
+  minCurveSpeedKmh: 90
   curveBrakeGain: 0.25
   curveBrakeDeadband: 0.5
   desiredSpeedKmh: 100

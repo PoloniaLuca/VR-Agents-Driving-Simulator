@@ -15,6 +15,10 @@ public class DataLogger : MonoBehaviour
     public VPVehicleToolkit vehicleToolkit;
     public Transform carTransform;
 
+    [Header("Output")]
+    [Tooltip("Nome della cartella sul Desktop dove salvare i CSV.")]
+    [SerializeField] private string desktopFolderName = "DrivingSimData";
+
     [Header("Participant / CSV")]
     [SerializeField] private string participantId = "";
     [SerializeField] private int participantGroup = 1;
@@ -619,12 +623,30 @@ public class DataLogger : MonoBehaviour
         Debug.Log($"DataLogger: CSV raw={rawCsvFilePath}");
     }
 
+    // Cartella di output: <Desktop>/<desktopFolderName>. La crea se non esiste.
+    private string GetOutputFolder()
+    {
+        string desktop = System.Environment.GetFolderPath(System.Environment.SpecialFolder.DesktopDirectory);
+        string folder = Path.Combine(desktop, desktopFolderName);
+
+        try
+        {
+            Directory.CreateDirectory(folder); // nessun errore se esiste gia'
+            return folder;
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogError($"[DataLogger] Impossibile creare {folder}, uso persistentDataPath: {ex}");
+            return Application.persistentDataPath; // fallback
+        }
+    }
+
     private string BuildCsvFilePath()
     {
         string safeParticipantId = MakeSafeFileName(participantId);
 
         return Path.Combine(
-            Application.persistentDataPath,
+            GetOutputFolder(),
             $"car_simulator_{safeParticipantId}_{participantGroup}.csv"
         );
     }
@@ -634,7 +656,7 @@ public class DataLogger : MonoBehaviour
         string safeParticipantId = MakeSafeFileName(participantId);
 
         return Path.Combine(
-            Application.persistentDataPath,
+            GetOutputFolder(),
             $"car_simulator_{safeParticipantId}_{participantGroup}_raw.csv"
         );
     }
